@@ -286,6 +286,7 @@ export async function importBook(
     inPlace = false,
     lookupIndex,
     osPlatform,
+    groupName,
   } = options;
   const isPseStream = typeof file === 'string' && isPseStreamFileName(file);
 
@@ -428,6 +429,8 @@ export async function importBook(
       primaryLanguage,
       author: formatAuthors(loadedBook.metadata.author, primaryLanguage),
       metadata: loadedBook.metadata,
+      groupId: groupName,
+      groupName: groupName,
       createdAt: existingBook ? existingBook.createdAt : Date.now(),
       uploadedAt: existingBook ? existingBook.uploadedAt : null,
       deletedAt: transient ? Date.now() : null,

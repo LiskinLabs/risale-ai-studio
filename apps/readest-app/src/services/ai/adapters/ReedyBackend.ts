@@ -238,6 +238,12 @@ function embeddingModelIdFor(settings: AISettings): string {
       return settings.aiGatewayEmbeddingModel || 'openai/text-embedding-3-small';
     case 'openrouter':
       return settings.openrouterEmbeddingModel || 'openai/text-embedding-3-small';
+    case 'gemini':
+      return settings.geminiEmbeddingModel || 'text-embedding-004';
+    case 'deepseek':
+      return settings.deepseekEmbeddingModel || 'openai/text-embedding-3-small';
+    default:
+      return 'openai/text-embedding-3-small';
   }
 }
 

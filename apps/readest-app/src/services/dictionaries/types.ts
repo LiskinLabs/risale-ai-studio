@@ -12,6 +12,12 @@ export type DictionaryProviderKind = 'builtin' | 'stardict' | 'mdict' | 'dict' |
 export interface DictionaryLookupContext {
   /** Source language hint, e.g. book primary language code (`en`, `zh`). */
   lang?: string;
+  /** Target language for dictionary lookup. */
+  dictionaryLanguage?: string;
+  /** Dictionary filter level (used by Risale Lugat). */
+  dictionaryLevel?: number;
+  /** Surrounding text context for AI-based lookup. */
+  context?: { before?: string; after?: string };
   /** Cancel signal for in-flight network/IO. */
   signal: AbortSignal;
   /** Tab pane to render into. Provider populates this; never touch `document` selectors. */
@@ -176,6 +182,8 @@ export interface DictionarySettings {
 export const BUILTIN_PROVIDER_IDS = {
   wiktionary: 'builtin:wiktionary',
   wikipedia: 'builtin:wikipedia',
+  risaleLugat: 'builtin:risale-lugat',
+  aiDictionary: 'builtin:ai-dictionary',
   /**
    * "Sentinel" id for the OS-native dictionary (macOS Dictionary.app via the
    * `dict://` URL scheme; iOS `UIReferenceLibraryViewController`; Android

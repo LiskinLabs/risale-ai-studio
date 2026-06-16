@@ -79,6 +79,9 @@ export interface ImportBookOptions {
   inPlace?: boolean;
   /** Pre-built lookup index for O(1) dedup during batch imports. */
   lookupIndex?: BookLookupIndex;
+
+  /** The name of the group to assign the book to upon import. */
+  groupName?: string;
 }
 
 export interface Book {
@@ -108,6 +111,8 @@ export interface Book {
   downloadedAt?: number | null;
   coverDownloadedAt?: number | null;
   syncedAt?: number | null;
+
+  builtin?: boolean;
 
   lastUpdated?: number; // deprecated in favor of updatedAt
   progress?: [number, number]; // Add progress field: [current, total], 1-based page number
@@ -155,6 +160,9 @@ export interface BookNote {
    * bookmarks and excerpts, and for fixed-layout formats (e.g. PDF).
    */
   global?: boolean;
+
+  layer?: AnnotationLayer;
+  protected?: boolean;
 
   createdAt: number;
   updatedAt: number;
@@ -239,6 +247,9 @@ export interface BookFont {
   monospaceFont: string;
   defaultFont: string;
   defaultCJKFont: string;
+  latinFont?: string;
+  cyrillicFont?: string;
+  arabicFont?: string;
   defaultFontSize: number;
   minimumFontSize: number;
   fontWeight: number;
@@ -261,6 +272,9 @@ export interface BookLanguage {
 }
 
 export type ProgressBarMode = 'remaining' | 'progress' | 'battery' | 'time' | 'all' | 'none';
+export type AnnotationLayer = 'user' | 'author' | 'hasiye' | 'lugat';
+export type MeaningDisplayMode = 'open' | 'closed';
+
 export interface ViewConfig {
   sideBarTab: string;
   uiLanguage: string;
@@ -295,6 +309,15 @@ export interface ViewConfig {
   readingRulerPosition: number;
   readingRulerOpacity: number;
   readingRulerColor: ReadingRulerColor;
+
+  /** Set of enabled annotation layers. Persisted as an array of strings. */
+  enabledLayers?: AnnotationLayer[];
+
+  /** Whether the meaning (lugat/hasiye) is displayed. */
+  meaningDisplayMode?: MeaningDisplayMode;
+
+  /** Dictionary filter level (used by Risale Lugat). */
+  dictionaryLevel?: number;
 }
 
 export interface TTSConfig {
