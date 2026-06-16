@@ -16,7 +16,7 @@ import {
   LOCAL_IMAGES_SUBDIR,
 } from './constants';
 
-const APP_NAME = 'Risale AI Studio';
+const APP_NAME = 'Readest';
 
 // System directory getters matching Tauri's appDataDir, appConfigDir, etc.
 function getAppDataDir(): string {
@@ -395,16 +395,12 @@ export class NodeAppService extends BaseAppService {
     },
   ): Promise<boolean> {
     try {
-      // When content is null the file already lives at filePath and the caller
-      // just needs the node-side path resolved — nothing to write.
       const filepath = options?.filePath ?? '';
-      if (content != null) {
-        await fsp.mkdir(nodePath.dirname(filepath), { recursive: true });
-        if (typeof content === 'string') {
-          await fsp.writeFile(filepath, content, 'utf-8');
-        } else {
-          await fsp.writeFile(filepath, Buffer.from(content));
-        }
+      await fsp.mkdir(nodePath.dirname(filepath), { recursive: true });
+      if (typeof content === 'string') {
+        await fsp.writeFile(filepath, content, 'utf-8');
+      } else if (content) {
+        await fsp.writeFile(filepath, Buffer.from(content));
       }
       return true;
     } catch (error) {

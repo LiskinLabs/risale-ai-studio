@@ -7,8 +7,8 @@ vi.mock('@/services/environment', () => ({
   isTauriAppPlatform: vi.fn(() => false),
   getAPIBaseUrl: () => '/api',
   getNodeAPIBaseUrl: () => '/node-api',
-  getBaseUrl: () => 'https://web.risale-ai-studio.com',
-  getNodeBaseUrl: () => 'https://node.risale-ai-studio.com',
+  getBaseUrl: () => 'https://web.readest.com',
+  getNodeBaseUrl: () => 'https://node.readest.com',
   isWebDevMode: () => true,
 }));
 
@@ -97,7 +97,7 @@ describe('opdsReq', () => {
         'CF-Access-Client-Id': 'client-id',
         'CF-Access-Client-Secret': 'secret',
       });
-      const params = new URL(proxied, 'https://web.risale-ai-studio.com').searchParams;
+      const params = new URL(proxied, 'https://web.readest.com').searchParams;
 
       expect(deserializeOPDSCustomHeaders(params.get('headers'))).toEqual({
         'CF-Access-Client-Id': 'client-id',
@@ -173,7 +173,7 @@ describe('opdsReq', () => {
 
       expect(fetchMock).toHaveBeenCalledTimes(1);
       const proxyUrl = fetchMock.mock.calls[0]![0] as string;
-      const auth = new URL(proxyUrl, 'https://web.risale-ai-studio.com').searchParams.get('auth');
+      const auth = new URL(proxyUrl, 'https://web.readest.com').searchParams.get('auth');
       expect(auth).toBe(`Basic ${btoa('alice:s3cret')}`);
     });
 

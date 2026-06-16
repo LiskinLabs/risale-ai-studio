@@ -1,4 +1,3 @@
-import React from 'react';
 import { render, act, cleanup } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 
@@ -20,13 +19,21 @@ let mockProgress: { location: string } | null;
 let mockBooknotes: BookNote[];
 
 // ---------- Mocks ----------
-vi.mock('@/store/bookDataStore', () => ({
-  useBookDataStore: () => ({ getConfig: () => ({ booknotes: mockBooknotes }) }),
-}));
+// Production code uses per-field selectors; mock must apply them.
+vi.mock('@/store/bookDataStore', () => {
+  const state = { getConfig: () => ({ booknotes: mockBooknotes }) };
+  return {
+    useBookDataStore: <R,>(selector?: (s: typeof state) => R) =>
+      selector ? selector(state) : state,
+  };
+});
 
-vi.mock('@/store/readerStore', () => ({
-  useReaderStore: () => ({ getProgress: () => mockProgress }),
-}));
+vi.mock('@/store/readerStore', () => {
+  const state = { getProgress: () => mockProgress };
+  return {
+    useReaderStore: <R,>(selector?: (s: typeof state) => R) => (selector ? selector(state) : state),
+  };
+});
 
 vi.mock('@/store/sidebarStore', () => ({
   useSidebarStore: () => ({

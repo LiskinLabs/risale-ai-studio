@@ -24,10 +24,6 @@ export async function deleteBook(
   book: Book,
   deleteAction: DeleteAction,
 ): Promise<void> {
-  if (book.builtin) {
-    console.log('Cannot delete built-in book:', book.title);
-    return;
-  }
   if (deleteAction === 'local' || deleteAction === 'both') {
     const source = await resolveBookContentSource(fs, book);
     if (source.kind === 'external') {
@@ -130,7 +126,6 @@ export async function downloadReplicaFileFromCloud(
     replicaId: string;
     filename: string;
     dst: string;
-    base: BaseDir;
     onProgress?: ProgressHandler;
   },
 ): Promise<void> {
@@ -139,7 +134,6 @@ export async function downloadReplicaFileFromCloud(
     appService,
     cfp,
     dst: opts.dst,
-    base: opts.base,
     onProgress: opts.onProgress,
   });
 }
@@ -214,19 +208,20 @@ export async function uploadBook(
 
 export async function downloadCloudFile(
   appService: AppService,
-  _localBooksDir: string,
+  localBooksDir: string,
   lfp: string,
   cfp: string,
   onProgress: ProgressHandler,
 ): Promise<void> {
   console.log('Downloading file:', cfp, 'to', lfp);
-  await downloadFile({ appService, cfp, dst: lfp, base: 'Books', onProgress });
+  const dstPath = `${localBooksDir}/${lfp}`;
+  await downloadFile({ appService, cfp, dst: dstPath, onProgress });
 }
 
 export async function downloadBookCovers(
   appService: AppService,
   fs: FileSystem,
-  _localBooksDir: string,
+  localBooksDir: string,
   books: Book[],
 ): Promise<void> {
   const booksLfps = new Map(
@@ -250,14 +245,9 @@ export async function downloadBookCovers(
   await Promise.all(
     downloadUrls.map(async (file) => {
       try {
+        const dst = `${localBooksDir}/${file.lfp}`;
         if (!file.downloadUrl) return;
-        await downloadFile({
-          appService,
-          dst: file.lfp,
-          base: 'Books',
-          cfp: file.cfp,
-          url: file.downloadUrl,
-        });
+        await downloadFile({ appService, dst, cfp: file.cfp, url: file.downloadUrl });
         const book = booksLfps.get(file.lfp);
         if (book && !book.coverDownloadedAt) {
           book.coverDownloadedAt = Date.now();

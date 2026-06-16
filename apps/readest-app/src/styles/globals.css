@@ -2,16 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Logo animations — used by Logo.tsx */
-@keyframes dash {
-  from {
-    stroke-dashoffset: 283;
-  }
-  to {
-    stroke-dashoffset: 0;
-  }
-}
-
 @font-face {
   font-family: 'Inter';
   src: url('/fonts/InterVariable.woff2') format('woff2');
@@ -540,6 +530,13 @@ input[type='range'].slider-input {
   background-color: theme('colors.base-content') !important;
 }
 
+/* Inverted chip for e-ink: base-content fill, base-100 content. Declared after
+   the substring matchers above so the content color wins the cascade. */
+[data-eink='true'] .eink-inverted {
+  background-color: theme('colors.base-content') !important;
+  color: theme('colors.base-100') !important;
+}
+
 [data-eink='true'] [class*='font-light'] {
   font-weight: normal !important;
 }
@@ -914,205 +911,6 @@ body.atmosphere #atmosphere-overlay {
  * was visually redundant and read as a "double border". Buttons keep
  * their focus ring for accessibility — only typed-in surfaces lose it.
  */
-/* 3D Book Cover Effects - Page Flip Edition */
-.book-3d-container {
-  perspective: 1500px;
-}
-
-.book-3d-wrapper {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  transform-style: preserve-3d;
-  transition: transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
-  transform: rotateY(-10deg) rotateX(2deg);
-}
-
-@media (min-width: 768px) {
-  .book-3d-container:hover .book-3d-wrapper {
-    transform: rotateY(-5deg) rotateX(2deg) scale(1.02);
-  }
-}
-
-.book-3d-front {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  transform-origin: left center;
-  transform-style: preserve-3d;
-  transition: transform 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
-  z-index: 10;
-  box-shadow: 2px 4px 12px rgba(0, 0, 0, 0.08);
-}
-
-.glare-overlay {
-  transition: opacity 0.3s ease;
-  border-radius: inherit;
-  z-index: 50;
-}
-
-.gold-foil {
-  background: linear-gradient(
-    135deg,
-    #bf953f -20%,
-    #fcf6ba 20%,
-    #b38728 50%,
-    #fbf5b7 80%,
-    #aa771c 120%
-  );
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  color: transparent;
-  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.4);
-  position: relative;
-}
-
-.book-opening {
-  animation: book-open-anim 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
-}
-
-.book-opening .book-3d-front {
-  transform: rotateY(-180deg) !important;
-  box-shadow:
-    inset 4px 0 10px rgba(0, 0, 0, 0.1),
-    -5px 0 15px rgba(0, 0, 0, 0.2);
-}
-
-@keyframes book-open-anim {
-  0% {
-    transform: scale(1) translateY(0);
-  }
-  50% {
-    transform: scale(1.1) translateY(-10px);
-  }
-  100% {
-    transform: scale(1.2) translateY(-5px);
-    opacity: 0;
-  }
-}
-
-.book-front-content {
-  position: absolute;
-  inset: 0;
-  backface-visibility: hidden;
-  transform: translateZ(1px); /* ensure it stays above inside */
-}
-
-@media (min-width: 768px) {
-  .book-3d-container:hover .book-3d-front {
-    transform: rotateY(-140deg);
-    box-shadow:
-      inset 4px 0 10px rgba(0, 0, 0, 0.1),
-      -5px 0 15px rgba(0, 0, 0, 0.2);
-  }
-}
-
-.book-3d-front-inside {
-  position: absolute;
-  inset: 0;
-  background: #f0ead6;
-  transform: translateZ(-1px) rotateY(180deg);
-  backface-visibility: hidden;
-  box-shadow: inset 4px 0 10px rgba(0, 0, 0, 0.1);
-  border-radius: 4px 0 0 4px;
-}
-
-.book-3d-back {
-  position: absolute;
-  inset: 0;
-  background: var(--book-bg, #1a1a3e);
-  transform: translateZ(-10px);
-  border-radius: 0 4px 4px 0;
-  box-shadow: 2px 4px 12px rgba(0, 0, 0, 0.1);
-}
-
-.book-3d-spine {
-  position: absolute;
-  top: 0;
-}
-
-/* Apple Books Style Shadows */
-.shadow-apple-book {
-  box-shadow:
-    0 2px 4px rgba(0, 0, 0, 0.1),
-    0 4px 12px rgba(0, 0, 0, 0.15),
-    0 12px 24px rgba(0, 0, 0, 0.15);
-  transition: box-shadow 0.3s ease-out;
-}
-
-.book-card-hover:hover .shadow-apple-book {
-  box-shadow:
-    0 4px 8px rgba(0, 0, 0, 0.15),
-    0 8px 24px rgba(0, 0, 0, 0.2),
-    0 24px 48px rgba(0, 0, 0, 0.25);
-}
-
-/* New Book Item Classes */
-.book-card-hover {
-  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
-  will-change: transform;
-}
-.book-card-hover:hover {
-  transform: translateY(-5px) scale(1.02);
-  z-index: 20;
-}
-.book-card-hover:hover .book-minimal-hover-wrapper {
-  transform: perspective(1000px) rotateX(calc((var(--mouse-y, 0.5) - 0.5) * -10deg))
-    rotateY(calc((var(--mouse-x, 0.5) - 0.5) * 10deg));
-  transition: transform 0.1s ease-out;
-}
-.book-minimal-hover-wrapper {
-  transition: transform 0.4s ease-out;
-  will-change: transform;
-}
-
-.book-card {
-  transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-}
-
-.book-card-title {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  line-height: 1.25;
-}
-
-/* Premium UI Effects */
-.premium-glass {
-  background: rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(12px) saturate(180%);
-  -webkit-backdrop-filter: blur(12px) saturate(180%);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.dark .premium-glass {
-  background: rgba(15, 23, 42, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.premium-grain {
-  position: relative;
-}
-
-.premium-grain::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  opacity: 0.05;
-  pointer-events: none;
-  z-index: 1;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-}
-
-/* ... existing styles ... */
 input:not([type='checkbox']):not([type='radio']):not([type='range']):focus,
 input:not([type='checkbox']):not([type='radio']):not([type='range']):focus-visible,
 input:not([type='checkbox']):not([type='radio']):not([type='range']):focus-within,

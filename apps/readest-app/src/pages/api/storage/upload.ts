@@ -49,15 +49,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: 'Missing file info' });
     }
 
-    const supabaseAdminKey = process.env['SUPABASE_ADMIN_KEY'];
-    if (!supabaseAdminKey) {
-      console.error('SUPABASE_ADMIN_KEY is not configured — cloud storage is unavailable');
-      return res.status(503).json({
-        error:
-          'Cloud storage not configured. Set SUPABASE_ADMIN_KEY in .env.local (service_role key from Supabase dashboard).',
-      });
-    }
-
     const { usage, quota } = getStoragePlanData(token);
     if (usage + fileSize > quota + STORAGE_QUOTA_GRACE_BYTES) {
       return res.status(403).json({ error: 'Insufficient storage quota', usage });
@@ -76,23 +67,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (fetchError && fetchError.code !== 'PGRST116') {
       return res.status(500).json({ error: fetchError.message });
     }
-
+    let objSize = fileSize;
     if (existingRecord) {
-      // Re-uploading: update size and clear deleted_at. We use the incoming
-      // fileSize to sign the URL, so the DB record must match.
-      const { error: updateError } = await supabase
-        .from('files')
-        .update({
-          file_size: fileSize,
-          book_hash: bookHash ?? existingRecord.book_hash,
-          replica_kind: replicaKind ?? existingRecord.replica_kind,
-          replica_id: replicaId ?? existingRecord.replica_id,
-          deleted_at: null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', existingRecord.id);
-
-      if (updateError) return res.status(500).json({ error: updateError.message });
+      objSize = existingRecord.file_size;
     } else {
       const { data: inserted, error: insertError } = await supabase
         .from('files')
@@ -113,7 +90,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     try {
-      const uploadUrl = await getUploadSignedUrl(fileKey, fileSize, 1800);
+      const uploadUrl = await getUploadSignedUrl(fileKey, objSize, 1800);
 
       res.status(200).json({
         uploadUrl,
@@ -126,7 +103,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       res.status(500).json({ error: 'Could not create presigned post' });
     }
   } catch (error) {
-    console.error('Upload handler error:', error);
+    console.error(error);
     return res.status(500).json({ error: 'Something went wrong' });
   }
 }

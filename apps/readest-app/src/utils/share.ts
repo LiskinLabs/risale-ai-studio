@@ -1,3 +1,4 @@
+import { writeTextToClipboard } from '@/utils/clipboard';
 import { READEST_WEB_BASE_URL, SHARE_BASE_URL, SHARE_TOKEN_LENGTH } from '@/services/constants';
 
 export interface ShareDeepLink {
@@ -17,7 +18,7 @@ export const buildShareUrl = (token: string): string => `${SHARE_BASE_URL}/${tok
 
 // Parses both the custom-scheme and HTTPS forms used by the deeplink ingress.
 //   readest://share/{token}
-//   https://web.risale-ai-studio.com/s/{token}
+//   https://web.readest.com/s/{token}
 // Returns null on invalid input so callers can fall through to other parsers.
 export const parseShareDeepLink = (url: string): ShareDeepLink | null => {
   if (!url) return null;
@@ -44,10 +45,73 @@ export const parseShareDeepLink = (url: string): ShareDeepLink | null => {
   return null;
 };
 
+export interface SharePosition {
+  x: number;
+  y: number;
+  preferredEdge?: 'top' | 'bottom' | 'left' | 'right';
+}
+
+/** Minimal slice of AppService needed to decide the native-share path. */
+interface ShareCapableService {
+  isMobileApp?: boolean;
+  isMacOSApp?: boolean;
+}
+
+/**
+ * Whether the selected text can be shared by ANY method on this platform —
+ * native sharekit (mobile/macOS) or the Web Share API. Used to gate the Share
+ * tool's visibility in the selection toolbar and its customizer. Kept next to
+ * `shareSelectedText` so the two stay in sync.
+ */
+export const canShareText = (appService?: ShareCapableService | null): boolean =>
+  !!appService?.isMobileApp ||
+  !!appService?.isMacOSApp ||
+  (typeof navigator !== 'undefined' && typeof navigator.share === 'function');
+
+/**
+ * Open the OS share sheet for `text`, with graceful fallbacks.
+ *
+ * Ladder:
+ *  1. Native sharekit on mobile + macOS only. Windows/Linux are excluded: the
+ *     plugin's share UI can freeze the app on Windows (issue #4343) and is not
+ *     functional on Linux — `nativeAppService` gates `shareFile` the same way.
+ *  2. `navigator.share` (web / PWA). A rejection means the user dismissed the
+ *     sheet — respect it, don't silently copy.
+ *  3. Clipboard, as a last resort when no share method exists.
+ */
+export const shareSelectedText = async (
+  text: string,
+  position?: SharePosition,
+  appService?: ShareCapableService | null,
+): Promise<void> => {
+  if (!text) return;
+
+  if (appService?.isMobileApp || appService?.isMacOSApp) {
+    try {
+      const { shareText } = await import('@choochmeque/tauri-plugin-sharekit-api');
+      await shareText(text, { position });
+      return;
+    } catch (err) {
+      console.error('shareText failed; falling back:', err);
+    }
+  }
+
+  if (typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
+    try {
+      await navigator.share({ text });
+    } catch {
+      // User dismissed or share-time error; respect the choice.
+    }
+    return;
+  }
+
+  await writeTextToClipboard(text);
+};
+
 const isWebReadestHost = (host: string): boolean => {
   // Matches the production host and any preview domain Readest may serve from.
-  // Conservative: accepts only the exact production host or a *.risale-ai-studio.com
+  // Conservative: accepts only the exact production host or a *.readest.com
   // subdomain so a third-party site cannot impersonate a share URL.
   if (host === new URL(READEST_WEB_BASE_URL).host) return true;
-  return host.endsWith('.risale-ai-studio.com');
+  return host.endsWith('.readest.com');
 };

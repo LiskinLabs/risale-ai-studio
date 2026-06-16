@@ -1,6 +1,5 @@
 'use client';
 
-import React from 'react';
 import clsx from 'clsx';
 import { useEffect, useRef, useState } from 'react';
 
@@ -184,7 +183,7 @@ export default function AppLockDialog() {
   const description =
     mode === 'set'
       ? _(
-          'Pick a 4-digit PIN. You will need to enter it every time you open Risale AI Studio. There is no way to recover a forgotten PIN. Clearing the app data is the only way to reset it.',
+          'Pick a 4-digit PIN. You will need to enter it every time you open Readest. There is no way to recover a forgotten PIN. Clearing the app data is the only way to reset it.',
         )
       : mode === 'change'
         ? _('Enter your current PIN, then choose a new 4-digit PIN.')

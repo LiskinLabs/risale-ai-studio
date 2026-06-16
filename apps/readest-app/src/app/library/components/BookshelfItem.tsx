@@ -1,6 +1,5 @@
-import React from 'react';
 import clsx from 'clsx';
-import { useCallback, useState } from 'react';
+import { useCallback } from 'react';
 import { useEnv } from '@/context/EnvContext';
 import { useLibraryStore } from '@/store/libraryStore';
 import { useSettingsStore } from '@/store/settingsStore';
@@ -10,6 +9,8 @@ import { useLongPress } from '@/hooks/useLongPress';
 import { Menu, type MenuItemOptions } from '@tauri-apps/api/menu';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { eventDispatcher } from '@/utils/event';
+import { openExternalUrl } from '@/utils/open';
+import { getBookGoodreadsQuery, getGoodreadsSearchUrl } from '@/utils/goodreads';
 import { getOSPlatform } from '@/utils/misc';
 import { throttle } from '@/utils/throttle';
 import { navigateToReader, showReaderWindow } from '@/utils/nav';
@@ -160,15 +161,21 @@ const BookshelfItem: React.FC<BookshelfItemProps> = ({
     return true;
   };
 
-  const [isOpening, setIsOpening] = useState(false);
-
   const handleBookClick = useCallback(
     async (book: Book) => {
       if (isSelectMode) {
         toggleSelection(book.hash);
         return;
       }
-
+      // In-place books point at a file outside Books/<hash>/ that the user
+      // (or another app) may have moved, renamed, or deleted between sessions.
+      // Probe the source before navigating: if it's gone, drop the stale
+      // library record instead of opening the reader only to fail inside
+      // loadBookContent and bounce back with a toast. We restrict this to
+      // purely-local in-place books — cloud-synced books (`uploadedAt`) still
+      // go through `makeBookAvailable`'s on-demand download path below, and
+      // hash-copy books (no `filePath`) shouldn't lose their Books/<hash>/
+      // file under normal use, so we don't second-guess those here.
       if (book.filePath && !book.uploadedAt && !book.deletedAt) {
         const available = await appService?.isBookAvailable(book);
         if (!available) {
@@ -182,20 +189,15 @@ const BookshelfItem: React.FC<BookshelfItemProps> = ({
           return;
         }
       }
-
       const available = await makeBookAvailable(book);
       if (!available) return;
-
-      setIsOpening(true);
-
-      setTimeout(() => {
-        if (appService?.hasWindow && settings.openBookInNewWindow) {
-          showReaderWindow(appService, [book.hash]);
-        } else {
+      if (appService?.hasWindow && settings.openBookInNewWindow) {
+        showReaderWindow(appService, [book.hash]);
+      } else {
+        setTimeout(() => {
           navigateToReader(router, [book.hash]);
-        }
-        setIsOpening(false);
-      }, 600);
+        }, 0);
+      }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [isSelectMode, settings.openBookInNewWindow, appService],
@@ -271,6 +273,12 @@ const BookshelfItem: React.FC<BookshelfItemProps> = ({
           revealItemInDir(folder);
         },
       },
+      searchGoodreads: {
+        text: _('Search on Goodreads'),
+        action: async () => {
+          openExternalUrl(getGoodreadsSearchUrl(getBookGoodreadsQuery(book)));
+        },
+      },
       download: {
         text: _('Download Book'),
         action: async () => {
@@ -298,11 +306,7 @@ const BookshelfItem: React.FC<BookshelfItemProps> = ({
         },
       },
     };
-    const ids = getBookContextMenuItemIds(book);
-    // Built-in protected books cannot be deleted
-    const items = ids
-      .filter((id) => !(id === 'delete' && book.builtin))
-      .map((id) => itemOptions[id]);
+    const items = getBookContextMenuItemIds(book).map((id) => itemOptions[id]);
     const menu = await Menu.new({ items });
     await menu.popup();
   };
@@ -336,7 +340,7 @@ const BookshelfItem: React.FC<BookshelfItemProps> = ({
           // rendered rollup and already includes books from nested sub-
           // folders, so the deletion path doesn't need to re-derive what
           // belongs to the group from the id alone.
-          const ids = group.books.filter((b) => !b.deletedAt).map((b) => b.hash);
+          const ids = group.books.filter((book) => !book.deletedAt).map((book) => book.hash);
           eventDispatcher.dispatch('delete-books', { ids });
         },
       },
@@ -418,15 +422,21 @@ const BookshelfItem: React.FC<BookshelfItemProps> = ({
     }
   };
 
+  // Tag the rendered DOM with the book/group identity so feature code
+  // (e.g. the Send action's macOS share-popover anchor) can locate the
+  // exact bookshelf cell the user is acting on without threading refs
+  // through every parent. Books carry their content-hash; groups carry
+  // their full group name.
+  const itemDataAttrs =
+    'format' in item ? { 'data-book-hash': item.hash } : { 'data-group-name': item.name };
+
   return (
-    <div
-      className={clsx(mode === 'grid' ? 'h-full relative' : 'sm:hover:bg-base-300/50 px-4 sm:px-6')}
-    >
+    <div className={clsx(mode === 'grid' ? 'h-full' : 'sm:hover:bg-base-300/50 px-4 sm:px-6')}>
       <div
         className={clsx(
-          'visible-focus-inset-2 group relative z-10',
+          'visible-focus-inset-2 group',
           mode === 'grid' &&
-            'sm:hover:bg-base-300/50 flex h-full flex-col px-0 py-2 sm:rounded-md sm:px-4 sm:py-4 drop-shadow-[0_15px_15px_rgba(0,0,0,0.4)]',
+            'sm:hover:bg-base-300/50 flex h-full flex-col px-0 py-2 sm:rounded-md sm:px-4 sm:py-4',
           mode === 'list' && 'border-base-300 flex flex-col border-b py-2',
           appService?.isMobileApp && 'no-context-menu',
           pressing && mode === 'grid' ? 'not-eink:scale-95' : 'scale-100',
@@ -438,6 +448,7 @@ const BookshelfItem: React.FC<BookshelfItemProps> = ({
           transition: 'transform 0.2s',
         }}
         onKeyDown={handleKeyDown}
+        {...itemDataAttrs}
         {...handlers}
       >
         <div className='flex h-full flex-col justify-end'>
@@ -449,7 +460,6 @@ const BookshelfItem: React.FC<BookshelfItemProps> = ({
               isSelectMode={isSelectMode}
               bookSelected={itemSelected}
               transferProgress={transferProgress}
-              isOpening={isOpening}
               handleBookUpload={handleBookUpload}
               handleBookDownload={handleBookDownload}
               showBookDetailsModal={showBookDetailsModal}

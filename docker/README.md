@@ -83,7 +83,7 @@ docker compose -f compose.yaml -f compose.build.yaml up --build -d
 
 ### 3. Access
 
-- Risale AI Studio app: `http://localhost:3000`
+- Readest app: `http://localhost:3000`
 - MinIO console: `http://localhost:9001` (login with `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD`)
 
 ### Hot Reload (development)

@@ -9,8 +9,6 @@ export { createGetSelectionTool } from './getSelection';
 export type { GetSelectionResult } from './getSelection';
 export { createLookupPassageTool } from './lookupPassage';
 export type { LookupPassageDeps, LookupPassageResult } from './lookupPassage';
-export { createLookupGlobalPassageTool } from './lookupGlobalPassage';
-export type { LookupGlobalPassageDeps, LookupGlobalPassageResult } from './lookupGlobalPassage';
 export { createAddCitationTool } from './addCitation';
 export type { AddCitationResult } from './addCitation';
 export { createNavigateToCfiTool } from './navigateToCfi';

@@ -1,5 +1,5 @@
 import { getAPIBaseUrl, isWebAppPlatform } from '@/services/environment';
-import { AppService, BaseDir } from '@/types/system';
+import { AppService } from '@/types/system';
 import { getUserID } from '@/utils/access';
 import { fetchWithAuth } from '@/utils/fetch';
 import {
@@ -153,7 +153,6 @@ type DownloadFileParams = {
   appService: AppService;
   dst: string;
   cfp: string;
-  base?: BaseDir;
   url?: string;
   headers?: Record<string, string>;
   singleThreaded?: boolean;
@@ -165,7 +164,6 @@ export const downloadFile = async ({
   appService,
   dst,
   cfp,
-  base = 'None',
   url,
   headers,
   singleThreaded,
@@ -201,11 +199,9 @@ export const downloadFile = async ({
         onProgress,
         headers,
       );
-      await appService.writeFile(dst, base, await blob.arrayBuffer());
+      await appService.writeFile(dst, 'None', await blob.arrayBuffer());
       return responseHeaders;
     } else {
-      // For Tauri, if base is not 'None', we might need to resolve the path
-      // but usually the caller (cloudService) handles this for native.
       return await tauriDownload(
         downloadUrl,
         dst,

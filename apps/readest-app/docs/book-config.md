@@ -11,7 +11,7 @@ keys as the TypeScript `BookConfig` type in `src/types/book.ts`.
 
 ## Version
 
-`schemaVersion` identifies the raw `config.json` schema written by Risale AI Studio.
+`schemaVersion` identifies the raw `config.json` schema written by Readest.
 Current version:
 
 ```json
@@ -41,14 +41,14 @@ Version 1 documents these fields as the supported integration surface:
 - `updatedAt`: last config update timestamp in milliseconds.
 
 `viewSettings` and `searchConfig` are persisted app state. They are partial
-overrides and are merged with defaults when Risale AI Studio loads the config.
+overrides and are merged with defaults when Readest loads the config.
 
 ## Notes and XPointer Fields
 
 `BookConfig.xpointer` is the current reading location. It was not renamed by
 KOReader annotation sync work.
 
-For notes in `booknotes`, Risale AI Studio stores note ranges with:
+For notes in `booknotes`, Readest stores note ranges with:
 
 - `xpointer0`: start XPointer.
 - `xpointer1`: end XPointer, when available.

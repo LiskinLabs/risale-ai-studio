@@ -191,7 +191,7 @@ describe('fetchWithAuth', () => {
     });
 
     await expect(fetchWithAuth('https://api.example.com', { method: 'GET' })).rejects.toThrow(
-      'Internal Server Error',
+      'Request failed',
     );
   });
 });

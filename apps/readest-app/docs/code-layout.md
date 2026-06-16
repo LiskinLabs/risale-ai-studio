@@ -1,4 +1,4 @@
-# Risale AI Studio App Code Layout
+# Readest App Code Layout
 
 This note summarizes the runtime boundaries inside `apps/readest-app`, with two goals:
 
@@ -223,7 +223,7 @@ This is mostly client-side sync orchestration talking to backend endpoints like 
 
 ### `src/services/send`
 
-“Send to Risale AI Studio” and content conversion logic.
+“Send to Readest” and content conversion logic.
 
 - `sendAddress.ts`, `devicePrefs.ts`, `inboxDrainer.ts`
 - `conversion/`: article/page-to-EPUB conversion pipeline, sanitization, TOC building, asset bundling, and worker protocol

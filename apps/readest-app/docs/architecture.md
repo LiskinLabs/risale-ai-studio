@@ -1,6 +1,6 @@
-# Risale AI Studio Architecture
+# Readest Architecture
 
-This document gives a system-level view of Risale AI Studio: how the pieces fit together,
+This document gives a system-level view of Readest: how the pieces fit together,
 which side of the wire each piece runs on, and what each module is responsible
 for. It complements [`code-layout.md`](./code-layout.md), which focuses on the
 directory layout. Read this one first if you want to understand the system; read
@@ -11,14 +11,14 @@ GitHub.
 
 ## 1. High-level picture
 
-Risale AI Studio is a single TypeScript/React codebase (`apps/readest-app`) compiled into
+Readest is a single TypeScript/React codebase (`apps/readest-app`) compiled into
 multiple targets:
 
 - a **desktop app** (Windows / macOS / Linux) via Tauri v2
 - a **mobile app** (Android / iOS) via Tauri v2 mobile
 - a **web app** running on Next.js / Cloudflare Workers (OpenNext) at
-  [web.risale-ai-studio.com](https://web.risale-ai-studio.com)
-- two **side surfaces**: a "Send to Risale AI Studio" browser extension
+  [web.readest.com](https://web.readest.com)
+- two **side surfaces**: a "Send to Readest" browser extension
   (`apps/readest-app/extension/send-to-readest`) and a Windows thumbnail
   shell extension (`apps/readest-app/extensions/windows-thumbnail`)
 
@@ -32,11 +32,11 @@ flowchart LR
         Desktop["Desktop app<br/>(Tauri shell + React UI)"]
         Mobile["Mobile app<br/>(Tauri Android/iOS + React UI)"]
         Web["Web app<br/>(Next.js + React UI)"]
-        Ext["Browser extension<br/>(Send to Risale AI Studio)"]
+        Ext["Browser extension<br/>(Send to Readest)"]
         WinExt["Windows shell ext<br/>(thumbnail provider)"]
     end
 
-    subgraph Backend["Risale AI Studio backend (Next.js routes + Cloudflare Worker)"]
+    subgraph Backend["Readest backend (Next.js routes + Cloudflare Worker)"]
         AppApi["src/app/api/*<br/>(App Router)"]
         PagesApi["src/pages/api/*<br/>(Pages Router)"]
         RuntimeCfg["/runtime-config.js<br/>(server-injected config)"]
@@ -167,7 +167,7 @@ flowchart TB
     Library["app/library<br/>(grid, import, sort, OPDS shelf)"]
     Reader["app/reader<br/>(views + tooling)"]
     Auth["app/auth<br/>(Supabase auth UI)"]
-    Send["app/send<br/>(send-to-Risale AI Studio inbox)"]
+    Send["app/send<br/>(send-to-Readest inbox)"]
     User["app/user<br/>(account, subscription, settings)"]
     Updater["app/updater"]
     Offline["app/offline"]
@@ -232,7 +232,7 @@ customDictionaryStore / customFontStore /
 
 EPUB / MOBI / KF8 / FB2 / CBZ / TXT / PDF parsing and rendering is **not**
 hand-rolled in this repo. The reader sits on top of `packages/foliate-js`, a
-forked copy of the Foliate JS engine. Risale AI Studio's reader code in `app/reader` and
+forked copy of the Foliate JS engine. Readest's reader code in `app/reader` and
 the adapters under `src/services/annotation`, `src/services/nav`,
 `src/services/transformers`, and `src/services/rsvp` wrap that engine and add
 features (annotations sync, navigation, content transforms, vertical/Warichu
@@ -311,7 +311,7 @@ storage/list.ts          -> list user's objects
 storage/delete.ts        -> delete a single object
 storage/purge.ts         -> bulk wipe (account deletion path)
 storage/stats.ts         -> per-user usage/quotas
-send/inbox.ts            -> "Send to Risale AI Studio" inbox listing
+send/inbox.ts            -> "Send to Readest" inbox listing
 send/inbox/*             -> inbox item operations
 send/address.ts          -> per-user inbox address resolver
 send/fetch-url.ts        -> server-side URL fetcher for "send a link"
@@ -349,7 +349,7 @@ share/*                  -> share-link landing + read-only render
 ### 5.3 Workers
 
 `apps/readest-app/workers/send-email` is a separate Cloudflare Worker
-(deployed independently from the main app) responsible for the "Send to Risale AI Studio
+(deployed independently from the main app) responsible for the "Send to Readest
 by email" path. It receives mail, normalizes attachments, and drops items into
 the user's inbox so that the in-app `Send` page can pick them up via the
 `/api/send/inbox` endpoints.
@@ -462,9 +462,9 @@ punctuation normalization, whitespace collapsing, proofread suggestions,
 sanitization, footnote rewriting, style injection, traditional/simplified
 Chinese conversion (via `simplecc-wasm`), and Warichu (Japanese ruby/rubi)
 layout. These are reused by the reader, by RSVP, and by the
-"Send to Risale AI Studio" article-to-EPUB conversion.
+"Send to Readest" article-to-EPUB conversion.
 
-### 6.11 Send to Risale AI Studio
+### 6.11 Send to Readest
 
 End-to-end pipeline:
 
@@ -529,7 +529,7 @@ flowchart LR
     end
 
     subgraph DeployTargets
-        DCloudflare["Cloudflare Workers<br/>(web.risale-ai-studio.com)"]
+        DCloudflare["Cloudflare Workers<br/>(web.readest.com)"]
         DDocker["Docker image<br/>(ghcr.io/readest/readest)"]
         DDesktop["dmg / nsis / appimage"]
         DMobile["aab / ipa"]

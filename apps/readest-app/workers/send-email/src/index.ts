@@ -127,7 +127,7 @@ export default {
       .eq('user_id', userId)
       .in('status', ['pending', 'claimed']);
     if ((count ?? 0) >= limit) {
-      message.setReject('Inbox is full — open Risale AI Studio to process pending items');
+      message.setReject('Inbox is full — open Readest to process pending items');
       return;
     }
 

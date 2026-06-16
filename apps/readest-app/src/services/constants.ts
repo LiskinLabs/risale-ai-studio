@@ -15,6 +15,7 @@ import {
   ViewConfig,
   ViewSettings,
   ViewSettingsConfig,
+  WordWiseConfig,
 } from '@/types/book';
 import {
   HardcoverSettings,
@@ -30,8 +31,9 @@ import { UserStorageQuota, UserDailyTranslationQuota } from '@/types/quota';
 import { getDefaultMaxBlockSize, getDefaultMaxInlineSize } from '@/utils/config';
 import { stubTranslation as _ } from '@/utils/misc';
 import { DEFAULT_AI_SETTINGS } from './ai/constants';
+import { DEFAULT_ANNOTATION_TOOLBAR_ITEMS } from '@/utils/annotationToolbar';
 
-export const DATA_SUBDIR = 'Risale AI Studio';
+export const DATA_SUBDIR = 'Readest';
 export const LOCAL_BOOKS_SUBDIR = `${DATA_SUBDIR}/Books`;
 export const CLOUD_BOOKS_SUBDIR = `${DATA_SUBDIR}/Books`;
 export const CLOUD_REPLICAS_SUBDIR = `${DATA_SUBDIR}/Replicas`;
@@ -82,6 +84,7 @@ export const DEFAULT_HARDCOVER_SETTINGS = {
   enabled: false,
   accessToken: '',
   lastSyncedAt: 0,
+  autoSync: false,
 } as HardcoverSettings;
 
 export const DEFAULT_WEBDAV_SETTINGS = {
@@ -106,6 +109,7 @@ export const DEFAULT_SYSTEM_SETTINGS: Partial<SystemSettings> = {
   alwaysShowStatusBar: false,
   alwaysInForeground: false,
   autoCheckUpdates: true,
+  updateChannel: 'stable',
   screenWakeLock: false,
   screenBrightness: -1, // -1~100, -1 for system default
   autoScreenBrightness: true,
@@ -137,15 +141,8 @@ export const DEFAULT_SYSTEM_SETTINGS: Partial<SystemSettings> = {
 
   customDictionaries: [],
   dictionarySettings: {
-    providerOrder: [
-      'builtin:ai-dictionary',
-      'builtin:risale-lugat',
-      'builtin:wiktionary',
-      'builtin:wikipedia',
-    ],
+    providerOrder: ['builtin:wiktionary', 'builtin:wikipedia'],
     providerEnabled: {
-      'builtin:ai-dictionary': true,
-      'builtin:risale-lugat': true,
       'builtin:wiktionary': true,
       'builtin:wikipedia': true,
     },
@@ -202,6 +199,7 @@ export const DEFAULT_READSETTINGS: ReadSettings = {
   autohideCursor: true,
   translationProvider: 'deepl',
   translateTargetLang: 'EN',
+  wordWiseAutoDownload: true,
 
   customThemes: [],
   highlightStyle: 'highlight',
@@ -230,9 +228,6 @@ export const DEFAULT_BOOK_FONT: BookFont = {
   defaultFontSize: 16,
   minimumFontSize: 8,
   fontWeight: 400,
-  latinFont: 'Minion Pro',
-  cyrillicFont: 'Kazimir Text',
-  arabicFont: 'Nassim Arabic Pro',
 };
 
 export const DEFAULT_BOOK_LAYOUT: BookLayout = {
@@ -292,7 +287,6 @@ export const DEFAULT_BOOK_STYLE: BookStyle = {
   overrideLayout: false,
   overrideColor: false,
   useBookLayout: false,
-  hattiKuran: false,
 
   zoomMode: 'fit-page',
   spreadMode: 'auto',
@@ -350,6 +344,7 @@ export const DEFAULT_VIEW_CONFIG: ViewConfig = {
   tapToToggleFooter: false,
   showPaginationButtons: false,
   progressStyle: 'fraction',
+  referencePageCount: 0,
   progressInfoMode: 'all',
 
   animated: false,
@@ -361,13 +356,8 @@ export const DEFAULT_VIEW_CONFIG: ViewConfig = {
   readingRulerEnabled: false,
   readingRulerLines: 2,
   readingRulerPosition: 33,
-  readingRulerOpacity: 0.15,
+  readingRulerOpacity: 0.5,
   readingRulerColor: 'transparent',
-
-  dictionaryLevel: 3,
-  dictionaryLanguage: 'en',
-  meaningDisplayMode: 'closed',
-  enabledLayers: ['user', 'author', 'hasiye', 'lugat'],
 };
 
 export const DEFAULT_TTS_CONFIG: TTSConfig = {
@@ -410,8 +400,15 @@ export const DEFAULT_NOTE_EXPORT_CONFIG: NoteExportConfig = {
 export const DEFAULT_ANNOTATOR_CONFIG: AnnotatorConfig = {
   enableAnnotationQuickActions: true,
   annotationQuickAction: null,
+  annotationToolbarItems: DEFAULT_ANNOTATION_TOOLBAR_ITEMS,
   copyToNotebook: false,
   noteExportConfig: DEFAULT_NOTE_EXPORT_CONFIG,
+};
+
+export const DEFAULT_WORD_WISE_CONFIG: WordWiseConfig = {
+  wordWiseEnabled: false,
+  wordWiseLevel: 3,
+  wordWiseHintLang: '',
 };
 
 export const DEFAULT_SCREEN_CONFIG: ScreenConfig = {
@@ -440,7 +437,6 @@ export const SERIF_FONTS = [
   'PT Serif',
   'Georgia',
   'Times New Roman',
-  'Scheherazade New',
 ];
 
 export const NON_FREE_FONTS = ['Georgia', 'Times New Roman'];
@@ -456,14 +452,7 @@ export const CJK_SERIF_FONTS = [
 
 export const CJK_SANS_SERIF_FONTS = ['Noto Sans SC', 'Noto Sans TC'];
 
-export const SANS_SERIF_FONTS = [
-  'Roboto',
-  'Noto Sans',
-  'Open Sans',
-  'PT Sans',
-  'Helvetica',
-  'OpenDyslexic',
-];
+export const SANS_SERIF_FONTS = ['Roboto', 'Noto Sans', 'Open Sans', 'PT Sans', 'Helvetica'];
 
 export const MONOSPACE_FONTS = [
   'Fira Code',
@@ -786,18 +775,18 @@ export const CJK_FONTS_PATTENS = new RegExp(
 
 export const BOOK_IDS_SEPARATOR = '+';
 
-export const DOWNLOAD_READEST_URL = 'https://risale-ai-studio.com?utm_source=readest_web';
+export const DOWNLOAD_READEST_URL = 'https://readest.com?utm_source=readest_web';
 
-export const READEST_WEB_BASE_URL = 'https://web.risale-ai-studio.com';
-export const READEST_NODE_BASE_URL = 'https://node.risale-ai-studio.com';
+export const READEST_WEB_BASE_URL = 'https://web.readest.com';
+export const READEST_NODE_BASE_URL = 'https://node.readest.com';
 
 export const SHARE_BASE_URL = `${READEST_WEB_BASE_URL}/s`;
 export const SHARE_EXPIRATION_DAYS = [1, 3, 7] as const;
 
-// Send to Risale AI Studio — the domain inbound capture emails are addressed to, the
+// Send to Readest — the domain inbound capture emails are addressed to, the
 // R2 bucket holding raw inbound payloads, and the per-user cap on undrained
 // inbox items (defense against a leaked address).
-export const SEND_EMAIL_DOMAIN = 'risale-ai-studio.com';
+export const SEND_EMAIL_DOMAIN = 'readest.com';
 export const SEND_INBOX_BUCKET = 'readest-send-inbox';
 export const SEND_INBOX_PENDING_LIMIT = 50;
 // Hard cap on the size of a single uploaded EPUB the browser extension can
@@ -812,13 +801,21 @@ export const SHARE_TOKEN_LENGTH = 22;
 export const SHARE_PRESIGN_TTL_SECONDS = 300;
 export const SHARE_CFI_MAX_LENGTH = 512;
 
-const LATEST_DOWNLOAD_BASE_URL = 'https://download.risale-ai-studio.com/releases';
+const LATEST_DOWNLOAD_BASE_URL = 'https://download.readest.com/releases';
 
 export const READEST_UPDATER_FILE = `${LATEST_DOWNLOAD_BASE_URL}/latest.json`;
 
 export const READEST_CHANGELOG_FILE = `${LATEST_DOWNLOAD_BASE_URL}/release-notes.json`;
 
-export const READEST_PUBLIC_STORAGE_BASE_URL = 'https://storage.risale-ai-studio.com';
+export const READEST_NIGHTLY_UPDATER_FILE = 'https://download.readest.com/nightly/latest.json';
+
+// Public (verification) key, identical to src-tauri/tauri.conf.json `updater.pubkey`.
+// Used to verify nightly artifacts in the custom install flows (portable /
+// AppImage / Android). Safe to embed — it is a public key.
+export const READEST_UPDATER_PUBKEY =
+  'dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEJFMEQ1QjE2OEU1NEIzNTEKUldSUnMxU09GbHNOdmpEaWFMT1crRFpEV2VORzQ2MklxaFc0M1R0ci9xY2c1bENXS0xhM1R1L2sK';
+
+export const READEST_PUBLIC_STORAGE_BASE_URL = 'https://storage.readest.com';
 
 export const READEST_OPDS_USER_AGENT = 'Readest/1.0 (OPDS Browser)';
 

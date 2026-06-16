@@ -1,6 +1,6 @@
-## Risale AI Studio Design Language
+## Readest Design Language
 
-Risale AI Studio's UI is **Adwaita-aligned**, **e-ink-first**, **cross-platform-aware**. This doc is the
+Readest's UI is **Adwaita-aligned**, **e-ink-first**, **cross-platform-aware**. This doc is the
 reference for that language: principles, vocabulary, anti-patterns. New work should read it
 before reaching for daisyui defaults; existing work is gradually migrating toward it.
 
@@ -15,7 +15,7 @@ features get touched.
 
 ### 1. Identity & lineage
 
-Risale AI Studio's visual language descends from **Adwaita / libadwaita** — GNOME's design system —
+Readest's visual language descends from **Adwaita / libadwaita** — GNOME's design system —
 adapted for a cross-platform Tauri + Next.js app that also runs on iOS, Android, web, and
 e-ink readers.
 
@@ -36,12 +36,12 @@ What we take from Adwaita:
 - **Switches over checkboxes** for boolean settings.
 - **Subtle motion.** Short, ease-out, never bouncy.
 
-What's Risale AI Studio-specific:
+What's Readest-specific:
 
 - **E-ink as a first-class mode.** Every surface flips to flat 1px contrast borders under
   `[data-eink='true']`. Adwaita is desktop-GNOME-only; we ship to e-ink readers and the
   visual language has to survive there.
-- **Cross-platform reality.** Risale AI Studio runs on macOS, Windows, Linux, iOS, Android, web. The
+- **Cross-platform reality.** Readest runs on macOS, Windows, Linux, iOS, Android, web. The
   identity stays Adwaita; platform grace notes (radii, target sizes) follow host
   conventions where they matter.
 
@@ -109,7 +109,7 @@ where the focus state IS the affordance.
 
 #### 2.8 RTL: always use logical properties (REQUIRED)
 
-Risale AI Studio ships with RTL languages enabled. **Never use direction-bound Tailwind
+Readest ships with RTL languages enabled. **Never use direction-bound Tailwind
 utilities** when a logical equivalent exists — the visual edges flip in RTL,
 the logical ones don't.
 
@@ -171,7 +171,7 @@ extract a `<PanelHeader>` primitive following the same shape.
 <div className='w-full'>
   <h2 className='mb-1.5 text-lg font-semibold tracking-tight'>{_('Integrations')}</h2>
   <p className='text-base-content/70 text-sm leading-relaxed'>
-    {_('Connect Risale AI Studio to external services for sync, highlights, and catalogs.')}
+    {_('Connect Readest to external services for sync, highlights, and catalogs.')}
   </p>
 </div>
 ```
@@ -198,7 +198,7 @@ Border treatment:
 
 Corner radius:
 
-- **Card / View**: `rounded-lg` (8px) — Risale AI Studio's house radius. Adwaita uses 9px; 8px is
+- **Card / View**: `rounded-lg` (8px) — Readest's house radius. Adwaita uses 9px; 8px is
   close enough and matches Tailwind's scale.
 - **Modal / Sheet**: `modal-box` default (~1rem / 16px) — bigger surfaces get bigger radii.
 - **Pills / Chips**: `rounded-full`.
@@ -267,7 +267,7 @@ The window controls in `SettingsDialog.tsx` (search, menu, close) use this arche
 
 #### 4.5 Destructive
 
-Delete, remove, irreversible. Adwaita uses `destructive-action`. Risale AI Studio uses red
+Delete, remove, irreversible. Adwaita uses `destructive-action`. Readest uses red
 sparingly — usually only the icon, not the whole button.
 
 ```tsx
@@ -281,7 +281,7 @@ but only in the modal — never on the main surface.
 
 #### 4.6 ListExtension
 
-A Risale AI Studio-named archetype for "add another row to the list above" affordances. The two
+A Readest-named archetype for "add another row to the list above" affordances. The two
 buttons at the bottom of `CustomDictionaries.tsx` are the canonical example.
 
 Anatomy:
@@ -390,7 +390,7 @@ subtitle, and the badge + toggle + edit/delete buttons stack as suffixes.
 - **ComboRow** — title + suffix is a dropdown/select.
 - **ExpanderRow** — chevron suffix; tap expands to reveal nested rows.
 
-These names come from libadwaita and apply 1:1 to Risale AI Studio's lists. Use the names in code
+These names come from libadwaita and apply 1:1 to Readest's lists. Use the names in code
 comments and PR descriptions.
 
 #### Spacing
@@ -620,7 +620,7 @@ For dictionary lookups, annotation editors, and other anchored overlays. Uses th
 #### Sheet (mobile bottom)
 
 Reserved for mobile contextual menus and full-screen secondary panels. Uses the dialog's
-`snapHeight` prop. Adwaita doesn't have a native sheet but Risale AI Studio's mobile pattern is
+`snapHeight` prop. Adwaita doesn't have a native sheet but Readest's mobile pattern is
 the closest analog.
 
 - Always full-width.
@@ -740,7 +740,7 @@ Verification checklist before shipping a new UI:
 
 ### 9. Cross-platform grace notes
 
-Risale AI Studio ships on **macOS, Windows, Linux, iOS, Android, web**. Adwaita is desktop-GNOME-
+Readest ships on **macOS, Windows, Linux, iOS, Android, web**. Adwaita is desktop-GNOME-
 native; we adapt where the host OS has strong conventions, but never at the cost of
 identity.
 
@@ -757,7 +757,7 @@ identity.
 #### Android
 
 - Material 3 conventions that conflict with Adwaita (FABs, elevation shadows, ripple
-  inks): **don't** copy them. Risale AI Studio's identity is Adwaita; the user is reading on
+  inks): **don't** copy them. Readest's identity is Adwaita; the user is reading on
   Android, not in Android.
 - Touch targets bumped to 48px for primary actions (Material's recommended target).
 - Back-gesture-aware UIs: ensure swipe-from-edge doesn't conflict with horizontal swipe
@@ -765,14 +765,14 @@ identity.
 
 #### Linux
 
-- Native Adwaita territory. Risale AI Studio can match host theme for window chrome (Tauri
+- Native Adwaita territory. Readest can match host theme for window chrome (Tauri
   decorations) but should keep its own internal palette for the reading surface — book
   themes (sepia, gruvbox, etc.) are user choices, not OS choices.
 
 #### macOS / Windows
 
 - Window controls (close/minimize/maximize) are platform-native via Tauri.
-- Title bar height matches platform convention; internal layout follows Risale AI Studio's
+- Title bar height matches platform convention; internal layout follows Readest's
   Adwaita palette.
 
 #### Web
@@ -893,7 +893,7 @@ vocabulary so the button signals its weight in the surface hierarchy.
 <div className="bg-base-100 border-base-200">
 ```
 
-Why: hard-coded colors don't theme. Risale AI Studio has 11 themes plus user-defined custom themes.
+Why: hard-coded colors don't theme. Readest has 11 themes plus user-defined custom themes.
 Always use the daisyui semantic tokens.
 
 #### 10.8 Mixing `btn` sizes within a surface
@@ -939,15 +939,15 @@ When designing a new surface, walk this checklist:
 
 ### 12. Glossary
 
-- **Adwaita / libadwaita**: GNOME's design system and widget toolkit. Source of Risale AI Studio's
+- **Adwaita / libadwaita**: GNOME's design system and widget toolkit. Source of Readest's
   visual lineage.
 - **AdwActionRow / AdwSwitchRow / AdwComboRow / AdwExpanderRow**: libadwaita's row
-  primitives. Risale AI Studio mirrors these conceptually with custom React components.
+  primitives. Readest mirrors these conceptually with custom React components.
 - **AdwBoxedList**: libadwaita's named container for grouped action rows.
 - **AdwBanner**: top-of-window inline alert (persistent).
 - **AdwToast**: bottom slide-in transient alert.
 - **Window / View / Card**: surface tiers (§3).
-- **ListExtension**: Risale AI Studio-named archetype for "+ add new row" buttons (§4.6).
+- **ListExtension**: Readest-named archetype for "+ add new row" buttons (§4.6).
 - **eink-bordered**: utility class in `globals.css` that gives a surface its e-ink-mode
   contrast border. Opt-in.
 - **Pill ghost**: circular icon button, `btn-ghost btn-circle`.

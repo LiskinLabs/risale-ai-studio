@@ -125,7 +125,7 @@ export async function POST(request: Request, { params }: RouteParams) {
 
   // Translate the sharer's file_keys into the recipient's namespace by
   // swapping the leading user-id prefix. Existing convention: file_key looks
-  // like `${userId}/risale-ai-studio/Book/{hash}/{filename}`.
+  // like `${userId}/Readest/Book/{hash}/{filename}`.
   const sharerPrefix = `${share.userId}/`;
   const recipientPrefix = `${user.id}/`;
 

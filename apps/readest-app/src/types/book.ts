@@ -45,6 +45,13 @@ export const FIXED_LAYOUT_FORMATS: Set<BookFormat> = new Set(['PDF', 'CBZ']);
 export interface BookLookupIndex {
   byHash: Map<string, Book>;
   byMetaKey: Map<string, Book[]>; // key = `${metaHash}:${format}`
+  // Maps normalized absolute source path -> Book for in-place imports.
+  // Lets the importer recognize "I already have this exact file" without
+  // having to open, parse, and hash it again. Only books with a non-empty
+  // `filePath` and `!deletedAt` are indexed. The key is produced by
+  // `normalizeFilePathForIndex` so callers must use the same helper to
+  // probe; importBook handles that internally.
+  byFilePath: Map<string, Book>;
 }
 
 /**
@@ -106,10 +113,6 @@ export interface Book {
   progress?: [number, number]; // Add progress field: [current, total], 1-based page number
   readingStatus?: ReadingStatus;
   primaryLanguage?: string;
-  /** Built-in book that ships with the app — cannot be deleted by the user. */
-  builtin?: boolean;
-  builtinVersion?: number;
-  builtinGroup?: string;
 
   metadata?: BookMetadata;
 }
@@ -156,13 +159,6 @@ export interface BookNote {
   createdAt: number;
   updatedAt: number;
   deletedAt?: number | null;
-
-  /** Protected notes cannot be deleted by the user (author notes, built-in layers) */
-  protected?: boolean;
-  /** Which annotation layer this note belongs to */
-  layer?: AnnotationLayer;
-  /** Locale of the annotation (ru, tr, en, ...) */
-  locale?: string;
 }
 
 export interface BooknoteGroup {
@@ -228,7 +224,6 @@ export interface BookStyle {
   overrideLayout: boolean;
   overrideColor: boolean;
   useBookLayout: boolean;
-  hattiKuran: boolean;
 
   // fixed-layout specific
   zoomMode: 'fit-page' | 'fit-width' | 'original-size' | 'custom';
@@ -247,10 +242,6 @@ export interface BookFont {
   defaultFontSize: number;
   minimumFontSize: number;
   fontWeight: number;
-  /** Per-script font families: 'latin', 'cyrillic', 'arabic', 'cjk' */
-  latinFont?: string;
-  cyrillicFont?: string;
-  arabicFont?: string;
 }
 
 export type ConvertChineseVariant =
@@ -289,7 +280,8 @@ export interface ViewConfig {
   showBatteryPercentage: boolean;
   tapToToggleFooter: boolean;
   showPaginationButtons: boolean;
-  progressStyle: 'percentage' | 'fraction';
+  progressStyle: 'percentage' | 'fraction' | 'reference';
+  referencePageCount: number;
   progressInfoMode: ProgressBarMode;
 
   animated: boolean;
@@ -303,17 +295,7 @@ export interface ViewConfig {
   readingRulerPosition: number;
   readingRulerOpacity: number;
   readingRulerColor: ReadingRulerColor;
-
-  dictionaryLevel: number;
-  dictionaryLanguage: string;
-  /** Anlam Açık Modu: 'open' = inline definitions, 'closed' = clean text */
-  meaningDisplayMode: 'open' | 'closed';
-  /** Currently enabled annotation layers */
-  enabledLayers: AnnotationLayer[];
 }
-
-/** Annotation layers for multi-layer annotation system */
-export type AnnotationLayer = 'user' | 'author' | 'hasiye' | 'lugat';
 
 export interface TTSConfig {
   ttsRate: number;
@@ -352,8 +334,17 @@ export interface NoteExportConfig {
 export interface AnnotatorConfig {
   enableAnnotationQuickActions: boolean;
   annotationQuickAction: AnnotationToolType | null;
+  annotationToolbarItems: AnnotationToolType[];
   copyToNotebook: boolean;
   noteExportConfig: NoteExportConfig;
+}
+
+export interface WordWiseConfig {
+  wordWiseEnabled: boolean;
+  /** Difficulty slider, 1 (fewest hints) .. 5 (most hints). */
+  wordWiseLevel: number;
+  /** Hint (target) language; '' = auto (app UI language). */
+  wordWiseHintLang: string;
 }
 
 export interface ScreenConfig {
@@ -396,6 +387,7 @@ export interface ViewSettings
     ScreenConfig,
     ProofreadRulesConfig,
     AnnotatorConfig,
+    WordWiseConfig,
     ViewSettingsConfig {}
 
 export interface BookProgress {
@@ -404,6 +396,7 @@ export interface BookProgress {
   sectionLabel: string;
   section: PageInfo;
   pageinfo: PageInfo;
+  pageItem?: { label?: string; href?: string } | null;
   timeinfo: TimeInfo;
   index: number;
   range: Range;

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import { useEnv } from '@/context/EnvContext';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useSettingsStore } from '@/store/settingsStore';
 import { checkForAppUpdates, checkAppReleaseNotes } from '@/helpers/updater';
 import { parseWebViewInfo } from '@/utils/ua';
 import { getAppVersion } from '@/utils/version';
@@ -25,6 +26,7 @@ type UpdateStatus = 'checking' | 'updating' | 'updated' | 'error';
 export const AboutWindow = () => {
   const _ = useTranslation();
   const { appService } = useEnv();
+  const { settings } = useSettingsStore();
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus | null>(null);
   const [browserInfo, setBrowserInfo] = useState('');
   const [isOpen, setIsOpen] = useState(false);
@@ -52,7 +54,7 @@ export const AboutWindow = () => {
   const handleCheckUpdate = async () => {
     setUpdateStatus('checking');
     try {
-      const hasUpdate = await checkForAppUpdates(_, false);
+      const hasUpdate = await checkForAppUpdates(_, false, settings.updateChannel);
       if (hasUpdate) {
         handleClose();
       } else {
@@ -82,7 +84,7 @@ export const AboutWindow = () => {
     <Dialog
       id='about_window'
       isOpen={isOpen}
-      title={_('About Risale AI Studio')}
+      title={_('About Readest')}
       onClose={handleClose}
       boxClassName='sm:!w-[480px] sm:!max-w-screen-sm sm:h-auto'
     >
@@ -93,7 +95,7 @@ export const AboutWindow = () => {
               <Image src='/icon.png' alt='App Logo' className='h-20 w-20' width={64} height={64} />
             </div>
             <div className='flex select-text flex-col items-center'>
-              <h2 className='mb-2 text-2xl font-bold'>Risale AI Studio</h2>
+              <h2 className='mb-2 text-2xl font-bold'>Readest</h2>
               <p className='text-neutral-content text-center text-sm'>
                 {_('Version {{version}}', { version: getAppVersion() })} {`(${browserInfo})`}
               </p>
@@ -144,10 +146,7 @@ export const AboutWindow = () => {
             </p>
             <p className='text-neutral-content text-xs'>
               Source code is available at{' '}
-              <Link
-                href='https://github.com/LiskinLabs/risale-ai-studio'
-                className='text-blue-500 underline'
-              >
+              <Link href='https://github.com/readest/readest' className='text-blue-500 underline'>
                 GitHub
               </Link>
               .

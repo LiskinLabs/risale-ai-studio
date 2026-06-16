@@ -1,4 +1,3 @@
-import React from 'react';
 import clsx from 'clsx';
 import { useEffect, useState } from 'react';
 import { MdCheckCircle, MdCheckCircleOutline } from 'react-icons/md';
@@ -7,7 +6,6 @@ import {
   LiaCloudDownloadAltSolid,
   LiaInfoCircleSolid,
 } from 'react-icons/lia';
-import { useDraggable } from '@dnd-kit/core';
 
 import { Book } from '@/types/book';
 import { useEnv } from '@/context/EnvContext';
@@ -18,7 +16,7 @@ import { useSettingsStore } from '@/store/settingsStore';
 import { useResponsiveSize } from '@/hooks/useResponsiveSize';
 import { LibraryCoverFitType, LibraryViewModeType } from '@/types/settings';
 import { navigateToLogin } from '@/utils/nav';
-import { formatAuthors, formatDescription } from '@/utils/book';
+import { formatAuthors, formatDescription, formatSeries } from '@/utils/book';
 import ReadingProgress from './ReadingProgress';
 import BookCover from '@/components/BookCover';
 
@@ -29,7 +27,6 @@ interface BookItemProps {
   isSelectMode: boolean;
   bookSelected: boolean;
   transferProgress: number | null;
-  isOpening?: boolean;
   handleBookUpload: (book: Book) => void;
   handleBookDownload: (book: Book, options?: { redownload?: boolean; queued?: boolean }) => void;
   showBookDetailsModal: (book: Book) => void;
@@ -42,7 +39,6 @@ const BookItem: React.FC<BookItemProps> = ({
   isSelectMode,
   bookSelected,
   transferProgress,
-  isOpening,
   handleBookUpload,
   handleBookDownload,
   showBookDetailsModal,
@@ -54,105 +50,92 @@ const BookItem: React.FC<BookItemProps> = ({
   const { settings } = useSettingsStore();
   const iconSize15 = useResponsiveSize(15);
 
-  const { attributes, listeners, setNodeRef } = useDraggable({
-    id: book.hash,
-    data: { book },
-  });
-
-  const [_coverAspect, setCoverAspect] = useState<number | null>(null);
+  const [coverAspect, setCoverAspect] = useState<number | null>(null);
   useEffect(() => {
     setCoverAspect(null);
   }, [book.hash, book.metadata?.coverImageUrl, book.coverImageUrl]);
 
-  const bookitemMainStyle = undefined; // Unified sizes for all covers
+  const CELL_ASPECT_RATIO = 28 / 41;
+  const fitCoverInGrid = mode === 'grid' && coverFit === 'fit' && coverAspect !== null;
+  const shouldShrinkWidth = fitCoverInGrid && coverAspect! < CELL_ASPECT_RATIO;
+  const bookitemMainStyle = fitCoverInGrid
+    ? {
+        aspectRatio: coverAspect!,
+        ...(shouldShrinkWidth ? { width: `${(coverAspect! / CELL_ASPECT_RATIO) * 100}%` } : {}),
+      }
+    : undefined;
+
+  const seriesText = formatSeries(book.metadata?.series, book.metadata?.seriesIndex);
 
   return (
     <div
-      ref={setNodeRef}
-      {...listeners}
-      {...attributes}
       role='none'
       className={clsx(
-        'book-item flex group',
+        'book-item flex',
         mode === 'grid' && 'h-full flex-col justify-end',
         mode === 'list' && 'h-28 flex-row gap-4 overflow-hidden',
         mode === 'list' ? 'library-list-item' : 'library-grid-item',
         appService?.hasContextMenu ? 'cursor-pointer' : '',
-        isOpening ? 'book-opening z-50' : 'transition-all duration-300 hover:z-10',
       )}
       onClick={(e) => e.stopPropagation()}
     >
-      <div className={clsx('relative w-full', mode === 'grid' && 'z-10')}>
-        {/* No wooden shelf, cleaner UI */}
-
-        <div
-          className={clsx(
-            'bookitem-main relative flex w-full justify-center overflow-visible rounded-lg z-10',
-            'aspect-[28/41]', // Always unified aspect ratio
-            coverFit === 'crop' && 'shadow-lg',
-            mode === 'grid' && 'items-end',
-            mode === 'list' && 'min-w-20 items-center',
-            'book-card book-card-hover',
-          )}
-          style={bookitemMainStyle}
-        >
-          <BookCover
-            mode={mode}
-            book={book}
-            coverFit={coverFit}
-            showSpine={false}
-            is3d={mode === 'grid'}
-            imageClassName='rounded-lg shadow-md'
-            onAspectRatioChange={setCoverAspect}
-          />
-          {mode === 'grid' && (book.progress || book.readingStatus) && (
-            <div
-              className='absolute bottom-0 left-0 right-0 z-30 opacity-90'
-              style={{ transform: 'translateZ(1px)' }}
-            >
-              <ReadingProgress book={book} />
-            </div>
-          )}
-          {bookSelected && (
-            <div className='absolute inset-0 bg-black opacity-30 transition-opacity duration-300 z-40'></div>
-          )}
-          {isSelectMode && (
-            <div className='absolute bottom-1 right-1 z-50'>
-              {bookSelected ? (
-                <MdCheckCircle className='fill-blue-500' />
-              ) : (
-                <MdCheckCircleOutline className='fill-gray-300 drop-shadow-sm' />
-              )}
-            </div>
-          )}
-        </div>
+      <div
+        className={clsx(
+          'bookitem-main relative flex justify-center overflow-hidden rounded',
+          !fitCoverInGrid && 'aspect-[28/41]',
+          coverFit === 'crop' && 'shadow-md',
+          mode === 'grid' && 'items-end',
+          mode === 'list' && 'min-w-20 items-center',
+        )}
+        style={bookitemMainStyle}
+      >
+        <BookCover
+          mode={mode}
+          book={book}
+          coverFit={coverFit}
+          showSpine={false}
+          imageClassName='rounded shadow-md'
+          onAspectRatioChange={setCoverAspect}
+        />
+        {bookSelected && (
+          <div className='absolute inset-0 bg-black opacity-30 transition-opacity duration-300'></div>
+        )}
+        {isSelectMode && (
+          <div className='absolute bottom-1 right-1'>
+            {bookSelected ? (
+              <MdCheckCircle className='fill-blue-500' />
+            ) : (
+              <MdCheckCircleOutline className='fill-gray-300 drop-shadow-sm' />
+            )}
+          </div>
+        )}
       </div>
       <div
         className={clsx(
           'flex w-full flex-col p-0',
-          mode === 'grid' && 'pt-4',
-          mode === 'list' && 'gap-2 py-0',
+          mode === 'grid' && 'pt-2',
+          mode === 'list' && 'gap-1 py-0',
         )}
       >
-        <div className={clsx('min-w-0 flex-1', mode === 'list' && 'flex flex-col gap-2')}>
+        <div className={clsx('min-w-0 flex-1', mode === 'list' && 'flex flex-col gap-1')}>
           <h4
             className={clsx(
-              'book-card-title font-semibold text-base-content',
-              mode === 'grid' && 'text-sm mt-1',
-              mode === 'list' && 'text-base',
+              'overflow-hidden text-ellipsis font-semibold',
+              mode === 'grid' && 'block whitespace-nowrap text-[0.6em] text-xs',
+              mode === 'list' && 'line-clamp-1 text-base',
             )}
           >
             {book.title}
           </h4>
-          <p
-            className={clsx(
-              'line-clamp-1',
-              mode === 'grid' ? 'text-xs text-base-content/70' : 'text-sm text-neutral-content',
-            )}
-          >
-            {formatAuthors(book.author, book.primaryLanguage) || ''}
-          </p>
+          {mode === 'list' && (
+            <p className='text-neutral-content line-clamp-1 text-sm'>
+              {formatAuthors(book.author, book.primaryLanguage) || ''}
+            </p>
+          )}
         </div>
+        {mode === 'list' && seriesText && (
+          <p className='text-neutral-content line-clamp-1 text-sm'>{seriesText}</p>
+        )}
         {mode === 'list' && (
           <h4 className='text-neutral-content line-clamp-1 text-sm'>
             {formatDescription(book.metadata?.description)}
@@ -161,18 +144,14 @@ const BookItem: React.FC<BookItemProps> = ({
         <div
           className={clsx(
             'flex items-center',
-            mode === 'list' && (book.progress || book.readingStatus)
-              ? 'justify-between'
-              : 'justify-end',
+            book.progress || book.readingStatus ? 'justify-between' : 'justify-end',
           )}
           style={{
             height: `${iconSize15}px`,
             minHeight: `${iconSize15}px`,
           }}
         >
-          {mode === 'list' && (book.progress || book.readingStatus) && (
-            <ReadingProgress book={book} />
-          )}
+          {(book.progress || book.readingStatus) && <ReadingProgress book={book} />}
           <div className='flex items-center justify-center gap-x-2'>
             {!appService?.isMobile && (
               <button
@@ -236,4 +215,4 @@ const BookItem: React.FC<BookItemProps> = ({
   );
 };
 
-export default React.memo(BookItem);
+export default BookItem;

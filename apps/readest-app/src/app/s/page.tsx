@@ -25,7 +25,7 @@ export async function generateMetadata({ searchParams }: PageProps): Promise<Met
   // keeps the full dynamic implementation below.
   if (process.env['NEXT_PUBLIC_APP_PLATFORM'] !== 'web') {
     return {
-      title: 'Open in Risale AI Studio',
+      title: 'Open in Readest',
       description: 'Open-source ebook reader for everyone, on every device.',
     };
   }
@@ -36,7 +36,7 @@ export async function generateMetadata({ searchParams }: PageProps): Promise<Met
 
   if (!token) {
     return {
-      title: 'Open in Risale AI Studio',
+      title: 'Open in Readest',
       description: 'Open-source ebook reader for everyone, on every device.',
     };
   }
@@ -53,25 +53,25 @@ export async function generateMetadata({ searchParams }: PageProps): Promise<Met
   const ogImage = `${READEST_WEB_BASE_URL}/api/share/${token}/og.png`;
 
   return {
-    title: `${share.bookTitle} · Shared via Risale AI Studio`,
+    title: `${share.bookTitle} · Shared via Readest`,
     description: share.bookAuthor
-      ? `${share.bookAuthor} · Shared via Risale AI Studio`
-      : 'Shared via Risale AI Studio',
+      ? `${share.bookAuthor} · Shared via Readest`
+      : 'Shared via Readest',
     openGraph: {
       type: 'book',
       url: shareUrl,
       title: share.bookTitle,
       description: share.bookAuthor
-        ? `${share.bookAuthor} · Shared via Risale AI Studio`
-        : 'Shared via Risale AI Studio',
+        ? `${share.bookAuthor} · Shared via Readest`
+        : 'Shared via Readest',
       images: [{ url: ogImage, width: 1200, height: 630 }],
     },
     twitter: {
       card: 'summary_large_image',
       title: share.bookTitle,
       description: share.bookAuthor
-        ? `${share.bookAuthor} · Shared via Risale AI Studio`
-        : 'Shared via Risale AI Studio',
+        ? `${share.bookAuthor} · Shared via Readest`
+        : 'Shared via Readest',
       images: [ogImage],
     },
   };

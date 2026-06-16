@@ -1,6 +1,6 @@
 # End-to-end tests
 
-Risale AI Studio has two end-to-end lanes. They cover different layers and are run
+Readest has two end-to-end lanes. They cover different layers and are run
 separately.
 
 ## Web lane — Playwright

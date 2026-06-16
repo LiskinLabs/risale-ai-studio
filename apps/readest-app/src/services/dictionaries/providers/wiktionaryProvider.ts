@@ -19,7 +19,6 @@ import { BUILTIN_PROVIDER_IDS } from '../types';
 import { fetchChineseDefinition } from '../chineseDict';
 import { normalizedLangCode } from '@/utils/lang';
 import { stubTranslation as _ } from '@/utils/misc';
-import { dictCache, DictCache } from '../dictCache';
 
 type Definition = {
   definition: string;
@@ -32,8 +31,13 @@ type Result = {
   language: string;
 };
 
-const applyDictLinks = (container: HTMLElement, onNavigate?: (word: string) => void): void => {
-  const links = container.querySelectorAll<HTMLAnchorElement>('a[rel="mw:WikiLink"]');
+const interceptDictLinks = (
+  definitionHtml: string,
+  onNavigate?: (word: string) => void,
+): HTMLElement[] => {
+  const wrapper = document.createElement('div');
+  wrapper.innerHTML = definitionHtml;
+  const links = wrapper.querySelectorAll<HTMLAnchorElement>('a[rel="mw:WikiLink"]');
   links.forEach((link) => {
     const title = link.getAttribute('title');
     if (!title) return;
@@ -43,6 +47,7 @@ const applyDictLinks = (container: HTMLElement, onNavigate?: (word: string) => v
     });
     link.className = 'not-eink:text-primary underline cursor-pointer';
   });
+  return Array.from(wrapper.childNodes) as HTMLElement[];
 };
 
 const renderChinese = async (
@@ -94,80 +99,22 @@ const renderChinese = async (
 const renderWiktionary = async (
   word: string,
   language: string | undefined,
-  preferredLanguage: string | undefined,
   container: HTMLElement,
   signal: AbortSignal,
   onNavigate?: (word: string) => void,
 ): Promise<DictionaryLookupOutcome> => {
-  const dictLang = preferredLanguage || 'en';
-
-  // Try the user's preferred language edition first, fall back to English.
-  // Not all language editions have the REST API, so we attempt the preferred
-  // one and gracefully degrade.
-  const urls = [
-    `https://${dictLang}.wiktionary.org/api/rest_v1/page/definition/${encodeURIComponent(word)}`,
-    ...(dictLang !== 'en'
-      ? [`https://en.wiktionary.org/api/rest_v1/page/definition/${encodeURIComponent(word)}`]
-      : []),
-  ];
-
-  let json: Record<string, Result[]>;
-  let usedLang = 'en';
-  let lastError: string | undefined;
-
-  for (const url of urls) {
-    try {
-      const response = await fetch(url, { signal });
-      if (response.ok) {
-        json = await response.json();
-        usedLang = new URL(url).hostname.split('.')[0]!;
-        lastError = undefined;
-        break;
-      }
-      if (response.status === 404) {
-        lastError = `404 (${new URL(url).hostname})`;
-        continue; // try fallback
-      }
-      lastError = `HTTP ${response.status}`;
-      if (url === urls[urls.length - 1]) {
-        return { ok: false, reason: 'error', message: lastError };
-      }
-    } catch (err) {
-      if ((err as { name?: string }).name === 'AbortError') throw err;
-      lastError = (err as Error).message;
-    }
+  const response = await fetch(
+    `https://en.wiktionary.org/api/rest_v1/page/definition/${encodeURIComponent(word)}`,
+    { signal },
+  );
+  if (!response.ok) {
+    return { ok: false, reason: 'error', message: `HTTP ${response.status}` };
   }
-
-  if (lastError || !json!) {
-    return { ok: false, reason: 'error', message: lastError || 'No response' };
-  }
-
+  const json = await response.json();
   if (signal.aborted) return { ok: false, reason: 'error', message: 'aborted' };
-
-  const sourceLabel =
-    usedLang === 'en' ? 'Wiktionary (CC BY-SA)' : `Wiktionary (${usedLang}, CC BY-SA)`;
-
-  // Multilingual fallback: try the book's language section first,
-  // then the user's preferred UI language, then English, then first available.
-  const langKeys = [
-    ...(language ? [language] : []),
-    ...(preferredLanguage && language !== preferredLanguage ? [preferredLanguage] : []),
-    ...(language !== 'en' && preferredLanguage !== 'en' ? ['en'] : []),
-  ];
-  let results: Result[] | undefined;
-  for (const key of langKeys) {
-    const section = json[key];
-    if (section && section.length > 0) {
-      results = section;
-      break;
-    }
-  }
-  if (!results) {
-    // Last resort: pick the first available language section
-    const firstKey = Object.keys(json)[0];
-    results = firstKey ? json[firstKey] : undefined;
-  }
-
+  const results: Result[] | undefined = language
+    ? json[language] || json['en']
+    : json[Object.keys(json)[0]!];
   if (!results || results.length === 0) {
     return { ok: false, reason: 'empty' };
   }
@@ -191,7 +138,8 @@ const renderWiktionary = async (
     definitions.forEach(({ definition, examples }: Definition) => {
       if (!definition) return;
       const li = document.createElement('li');
-      li.innerHTML = definition;
+      const processed = interceptDictLinks(definition, onNavigate);
+      li.append(...processed);
       if (examples) {
         const ul = document.createElement('ul');
         ul.className = 'pl-8 list-disc text-sm italic not-eink:opacity-75';
@@ -208,9 +156,7 @@ const renderWiktionary = async (
     container.appendChild(ol);
   });
 
-  applyDictLinks(container, onNavigate);
-
-  return { ok: true, headword: word, sourceLabel };
+  return { ok: true, headword: word, sourceLabel: 'Wiktionary (CC BY-SA)' };
 };
 
 export const wiktionaryProvider: DictionaryProvider = {
@@ -220,35 +166,11 @@ export const wiktionaryProvider: DictionaryProvider = {
   async lookup(word, ctx) {
     const langCode = typeof ctx.lang === 'string' ? ctx.lang : ctx.lang?.[0];
     const isChinese = langCode ? normalizedLangCode(langCode) === 'zh' : false;
-
-    // Check cache first
-    const cacheKey = DictCache.key(BUILTIN_PROVIDER_IDS.wiktionary, word, ctx.dictionaryLanguage);
-    const cached = dictCache.get(cacheKey);
-    if (cached && !ctx.signal.aborted) {
-      ctx.container.innerHTML = cached.html;
-      applyDictLinks(ctx.container, ctx.onNavigate);
-      return { ok: true, headword: word, sourceLabel: cached.sourceLabel };
-    }
-
     try {
-      let outcome: DictionaryLookupOutcome;
       if (isChinese) {
-        outcome = await renderChinese(word, ctx.container, ctx.signal);
-      } else {
-        outcome = await renderWiktionary(
-          word,
-          langCode,
-          ctx.dictionaryLanguage,
-          ctx.container,
-          ctx.signal,
-          ctx.onNavigate,
-        );
+        return await renderChinese(word, ctx.container, ctx.signal);
       }
-      // Cache successful lookups
-      if (outcome.ok) {
-        dictCache.set(cacheKey, ctx.container.innerHTML, outcome.sourceLabel || 'Wiktionary');
-      }
-      return outcome;
+      return await renderWiktionary(word, langCode, ctx.container, ctx.signal, ctx.onNavigate);
     } catch (error) {
       if ((error as { name?: string }).name === 'AbortError') {
         return { ok: false, reason: 'error', message: 'aborted' };

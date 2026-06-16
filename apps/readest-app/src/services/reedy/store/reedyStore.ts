@@ -34,7 +34,6 @@ export type ReedyMessagePart =
       sectionIndex: number;
       chapterTitle?: string;
       snippet: string;
-      bookHash?: string;
     }
   | { type: 'error'; message: string; kind: string }
   | { type: 'abort'; partial: boolean };
@@ -193,7 +192,6 @@ function applyEventToAssistant(
             sectionIndex: event.sectionIndex,
             chapterTitle: event.chapterTitle,
             snippet: event.snippet,
-            bookHash: event.bookHash,
           },
         ],
       };

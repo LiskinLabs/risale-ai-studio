@@ -529,9 +529,9 @@ describe('renderNoteTemplate', () => {
           annotations: [
             {
               text: 'quote',
-              webLink: 'https://web.risale-ai-studio.com/o/book/abc/annotation/n1',
+              webLink: 'https://web.readest.com/o/book/abc/annotation/n1',
               appLink: 'readest://book/abc/annotation/n1',
-              link: 'https://web.risale-ai-studio.com/o/book/abc/annotation/n1',
+              link: 'https://web.readest.com/o/book/abc/annotation/n1',
             },
           ],
         },
@@ -541,7 +541,7 @@ describe('renderNoteTemplate', () => {
     it('should render annotation.webLink', () => {
       const template = '{{ chapters[0].annotations[0].webLink }}';
       const result = renderNoteTemplate(template, linkData);
-      expect(result).toBe('https://web.risale-ai-studio.com/o/book/abc/annotation/n1');
+      expect(result).toBe('https://web.readest.com/o/book/abc/annotation/n1');
     });
 
     it('should render annotation.appLink with readest:// scheme', () => {
@@ -553,7 +553,7 @@ describe('renderNoteTemplate', () => {
     it('should still render legacy annotation.link', () => {
       const template = '{{ chapters[0].annotations[0].link }}';
       const result = renderNoteTemplate(template, linkData);
-      expect(result).toBe('https://web.risale-ai-studio.com/o/book/abc/annotation/n1');
+      expect(result).toBe('https://web.readest.com/o/book/abc/annotation/n1');
     });
   });
 

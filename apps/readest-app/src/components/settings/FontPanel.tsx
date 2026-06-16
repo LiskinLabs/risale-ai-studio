@@ -28,13 +28,7 @@ import { useResetViewSettings } from '@/hooks/useResetSettings';
 import { useKeyDownActions } from '@/hooks/useKeyDownActions';
 import { saveViewSettings } from '@/helpers/settings';
 import { SettingsPanelPanelProp } from './SettingsDialog';
-import {
-  BoxedList,
-  NavigationRow,
-  SettingLabel,
-  SettingsRow,
-  SettingsSwitchRow,
-} from './primitives';
+import { BoxedList, NavigationRow, SettingLabel, SettingsRow } from './primitives';
 import NumberInput from './NumberInput';
 import FontDropdown from './FontDropDown';
 import CustomFonts from './CustomFonts';
@@ -148,10 +142,6 @@ const FontPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset 
   const [sansSerifFont, setSansSerifFont] = useState(viewSettings.sansSerifFont);
   const [monospaceFont, setMonospaceFont] = useState(viewSettings.monospaceFont);
   const [fontWeight, setFontWeight] = useState(viewSettings.fontWeight);
-  const [hattiKuran, setHattiKuran] = useState(viewSettings.hattiKuran);
-  const [latinFont, setLatinFont] = useState(viewSettings.latinFont ?? '');
-  const [cyrillicFont, setCyrillicFont] = useState(viewSettings.cyrillicFont ?? '');
-  const [arabicFont, setArabicFont] = useState(viewSettings.arabicFont ?? '');
 
   const [customFonts, setCustomFonts] = useState<string[]>(getFontFamilies());
   const [CJKFonts, setCJKFonts] = useState<string[]>(() => {
@@ -171,10 +161,6 @@ const FontPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset 
       sansSerifFont: setSansSerifFont,
       monospaceFont: setMonospaceFont,
       fontWeight: setFontWeight,
-      hattiKuran: setHattiKuran,
-      latinFont: setLatinFont,
-      cyrillicFont: setCyrillicFont,
-      arabicFont: setArabicFont,
     });
   };
 
@@ -292,26 +278,6 @@ const FontPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [overrideFont]);
 
-  useEffect(() => {
-    saveViewSettings(envConfig, bookKey, 'hattiKuran', hattiKuran);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hattiKuran]);
-
-  useEffect(() => {
-    saveViewSettings(envConfig, bookKey, 'latinFont', latinFont || undefined);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [latinFont]);
-
-  useEffect(() => {
-    saveViewSettings(envConfig, bookKey, 'cyrillicFont', cyrillicFont || undefined);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cyrillicFont]);
-
-  useEffect(() => {
-    saveViewSettings(envConfig, bookKey, 'arabicFont', arabicFont || undefined);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [arabicFont]);
-
   const handleFontFamilyFont = (option: string) => {
     switch (option) {
       case 'Serif':
@@ -367,73 +333,14 @@ const FontPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset 
         />
       </BoxedList>
 
-      <BoxedList title={_('Font Weight & Style')}>
-        <SettingsRow label={_('Font Weight')} data-setting-id='settings.font.fontWeight'>
-          <NumberInput
-            label={_('Font Weight')}
-            value={fontWeight}
-            onChange={setFontWeight}
-            min={100}
-            max={900}
-            step={100}
-          />
-        </SettingsRow>
-      </BoxedList>
-
-      <BoxedList title={_('Per-Script Fonts (Advanced)')}>
-        <SettingsRow label={_('Latin (tr/en/de/fr...)')} data-setting-id='settings.font.latinFont'>
-          <FontDropdown
-            options={[
-              { option: '', label: _('Off') },
-              { option: 'Minion Pro', label: 'Minion Pro' },
-              { option: 'ITC Souvenir', label: 'ITC Souvenir' },
-              { option: 'Bitter', label: 'Bitter' },
-              { option: 'Literata', label: 'Literata' },
-              ...customFonts.map((f) => ({ option: f, label: f })),
-            ]}
-            selected={latinFont || ''}
-            onSelect={setLatinFont}
-            onGetFontFamily={handleFontFamilyFont}
-          />
-        </SettingsRow>
-        <SettingsRow
-          label={_('Cyrillic (ru/bg/uk...)')}
-          data-setting-id='settings.font.cyrillicFont'
-        >
-          <FontDropdown
-            options={[
-              { option: '', label: _('Off') },
-              { option: 'Kazimir Text', label: 'Kazimir Text' },
-              { option: 'PT Serif', label: 'PT Serif' },
-              ...customFonts.map((f) => ({ option: f, label: f })),
-            ]}
-            selected={cyrillicFont || ''}
-            onSelect={setCyrillicFont}
-            onGetFontFamily={handleFontFamilyFont}
-          />
-        </SettingsRow>
-        <SettingsRow
-          label={_('Arabic (ar/ota/fa/ur...)')}
-          data-setting-id='settings.font.arabicFont'
-        >
-          <FontDropdown
-            options={[
-              { option: '', label: _('Off') },
-              { option: 'Nassim Arabic Pro', label: 'Nassim Arabic Pro' },
-              { option: 'Scheherazade New', label: 'Scheherazade New' },
-              ...customFonts.map((f) => ({ option: f, label: f })),
-            ]}
-            selected={arabicFont || ''}
-            onSelect={setArabicFont}
-            onGetFontFamily={handleFontFamilyFont}
-          />
-        </SettingsRow>
-        <SettingsSwitchRow
-          label={_("Hatt-ı Kur'ân")}
-          description={_('Use Ottoman styling for Arabic text when no Arabic font is set')}
-          checked={hattiKuran}
-          onChange={() => setHattiKuran(!hattiKuran)}
-          data-setting-id='settings.font.hattiKuran'
+      <BoxedList title={_('Font Weight')} data-setting-id='settings.font.fontWeight'>
+        <NumberInput
+          label={_('Font Weight')}
+          value={fontWeight}
+          onChange={setFontWeight}
+          min={100}
+          max={900}
+          step={100}
         />
       </BoxedList>
 

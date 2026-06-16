@@ -8,8 +8,6 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useEnv } from '@/context/EnvContext';
 import { useThemeStore } from '@/store/themeStore';
-import { useSettingsStore } from '@/store/settingsStore';
-import { useReaderStore } from '@/store/readerStore';
 import { useCustomDictionaryStore } from '@/store/customDictionaryStore';
 import { getEnabledProviders } from '@/services/dictionaries/registry';
 import { buildLookupCandidates } from '@/services/dictionaries/lookupCandidates';
@@ -36,9 +34,6 @@ interface CardState {
 export interface UseDictionaryResultsArgs {
   word: string;
   lang?: string;
-  bookKey?: string;
-  /** Surrounding text context for AI-powered dictionary providers. */
-  context?: { before?: string; after?: string };
 }
 
 export interface DictionaryResultsState {
@@ -72,24 +67,14 @@ export interface DictionaryResultsState {
 export function useDictionaryResults({
   word,
   lang,
-  bookKey,
-  context,
 }: UseDictionaryResultsArgs): DictionaryResultsState {
   const { appService } = useEnv();
-  const { dictionaries, settings: dictSettings } = useCustomDictionaryStore();
+  const { dictionaries, settings } = useCustomDictionaryStore();
   const isDarkMode = useThemeStore((s) => s.isDarkMode);
   const themeCode = useThemeStore((s) => s.themeCode);
-  const { getViewSettings } = useReaderStore();
-  const { settings: generalSettings } = useSettingsStore();
-
-  const viewSettings = bookKey ? getViewSettings(bookKey) : generalSettings.globalViewSettings;
-  const dictionaryLevel = viewSettings?.dictionaryLevel ?? 3;
-  const dictionaryLanguage =
-    viewSettings?.dictionaryLanguage ||
-    (generalSettings.globalViewSettings?.dictionaryLanguage ?? 'en');
 
   const computedProviders = getEnabledProviders({
-    settings: dictSettings,
+    settings,
     dictionaries,
     fs: appService ?? undefined,
   });
@@ -111,8 +96,6 @@ export function useDictionaryResults({
   }, [word]);
 
   const [cards, setCards] = useState<Record<string, CardState>>({});
-  // Bump this to force a re-lookup (e.g. when user clicks refresh on AI card)
-  const [refreshKey, setRefreshKey] = useState(0);
   // Cards the user has manually toggled. The auto-expand reconciliation
   // (≤ 3 results → default expanded) only writes to cards NOT in this set.
   const [manuallyToggled, setManuallyToggled] = useState<Record<string, boolean>>({});
@@ -154,35 +137,15 @@ export function useDictionaryResults({
     setManuallyToggled({});
   }, [currentWord]);
 
-  // Track whether auto-expand has already been applied for the current
-  // lookup cycle, so we only run it once when all providers settle.
-  const autoExpandAppliedRef = useRef<string>('');
-
-  // Apply auto-expand once when all providers have responded (none left in
-  // 'loading' state). Debounced to avoid cascading re-renders on each
-  // individual provider result, which was causing "Transition was aborted
-  // because of timeout in DOM update" errors.
+  // Auto-expand decision: when ≤ 3 providers have settled with results,
+  // default-expand all of them. With > 3, default-collapse. User toggles
+  // are sticky (tracked in `manuallyToggled`).
   useEffect(() => {
-    const entries = Object.entries(cards);
-    if (entries.length === 0) return;
-
-    const hasLoading = entries.some(([, c]) => c.state === 'loading');
-    if (hasLoading) {
-      // Still waiting for some providers — reset the flag so we re-check later
-      autoExpandAppliedRef.current = '';
-      return;
-    }
-
-    // All providers have settled — apply auto-expand once
-    const loadKey = entries[0]?.[1]?.loadKey ?? '';
-    if (autoExpandAppliedRef.current === loadKey) return; // Already applied
-
-    const loadedIds = entries.filter(([, c]) => c.state === 'loaded').map(([id]) => id);
+    const loadedIds = Object.entries(cards)
+      .filter(([, c]) => c.state === 'loaded')
+      .map(([id]) => id);
     if (loadedIds.length === 0) return;
-
     const shouldExpand = loadedIds.length <= 3;
-    autoExpandAppliedRef.current = loadKey;
-
     setCards((prev) => {
       let changed = false;
       const next = { ...prev };
@@ -248,12 +211,15 @@ export function useDictionaryResults({
           if (!container) {
             outcome = { ok: false, reason: 'error', message: 'no container' };
           } else {
-            // Try normalized query variants (trimmed, case-folded) in
-            // priority order and keep the first hit. Case-sensitive
-            // formats (mdict) otherwise miss `Hello` / `world ` style
-            // selections whose headword is stored lowercased.
+            // Try normalized query variants (trimmed, case-folded) then
+            // language-aware lemma candidates in priority order, keeping the
+            // first hit. Case-sensitive formats (mdict) otherwise miss
+            // `Hello` / `world ` style selections whose headword is stored
+            // lowercased, and dictionaries that store only base headwords
+            // (e.g. Oxford Dictionary of English) miss inflected selections
+            // like `ran` / `mice` / `analyses`.
             outcome = { ok: false, reason: 'empty' };
-            for (const candidate of buildLookupCandidates(currentWord)) {
+            for (const candidate of buildLookupCandidates(currentWord, langCode)) {
               container.replaceChildren();
               outcome = await provider.lookup(candidate, {
                 lang: langCode,
@@ -263,9 +229,6 @@ export function useDictionaryResults({
                 isDarkMode,
                 bg: themeCode.bg,
                 fg: themeCode.fg,
-                dictionaryLevel,
-                dictionaryLanguage,
-                context,
               });
               if (controller.signal.aborted) return;
               if (outcome.ok || outcome.reason !== 'empty') break;
@@ -296,31 +259,15 @@ export function useDictionaryResults({
     });
 
     return () => controllers.forEach((c) => c.abort());
-  }, [
-    currentWord,
-    definitionProviders,
-    lang,
-    pushWord,
-    isDarkMode,
-    themeCode.bg,
-    themeCode.fg,
-    dictionaryLevel,
-    dictionaryLanguage,
-    context,
-    refreshKey,
-  ]);
+  }, [currentWord, definitionProviders, lang, pushWord, isDarkMode, themeCode.bg, themeCode.fg]);
 
-  // Listen for refresh-AI event from the AI card's refresh button
-  useEffect(() => {
-    const handler = () => setRefreshKey((k) => k + 1);
-    window.addEventListener('risale:refresh-ai-dictionary', handler);
-    return () => window.removeEventListener('risale:refresh-ai-dictionary', handler);
-  }, []);
-
-  // Visible cards = all providers regardless of state. We show error/empty
-  // states with a message so the user knows what went wrong instead of
-  // silently hiding failed providers.
-  const visibleDefinitionProviders = definitionProviders;
+  // Visible cards = providers that are still loading or finished with a
+  // result. Empty/unsupported/error cards are removed entirely.
+  const visibleDefinitionProviders = definitionProviders.filter((p) => {
+    const card = cards[p.id];
+    if (!card) return true;
+    return card.state === 'loading' || card.state === 'loaded';
+  });
 
   const resolveWebSearchUrl = useCallback(
     (id: string): string | undefined => {
@@ -328,12 +275,12 @@ export function useDictionaryResults({
         const tpl = getBuiltinWebSearch(id);
         return tpl ? substituteUrlTemplate(tpl.urlTemplate, currentWord) : undefined;
       }
-      const list: WebSearchEntry[] = dictSettings.webSearches ?? [];
+      const list: WebSearchEntry[] = settings.webSearches ?? [];
       const tpl = list.find((t) => t.id === id);
       if (!tpl || tpl.deletedAt) return undefined;
       return substituteUrlTemplate(tpl.urlTemplate, currentWord);
     },
-    [currentWord, dictSettings.webSearches],
+    [currentWord, settings.webSearches],
   );
 
   const onWebSearchClickTauri = useCallback(
@@ -374,16 +321,7 @@ interface DictionaryResultsHeaderProps {
   canGoBack: boolean;
   goBack: () => void;
   onManage?: () => void;
-  dictionaryLanguage?: string;
-  onLanguageChange?: (lang: string) => void;
 }
-
-const DICT_LANGS: { code: string; label: string; flag: string }[] = [
-  { code: 'ru', label: 'Русский', flag: '🇷🇺' },
-  { code: 'tr', label: 'Türkçe', flag: '🇹🇷' },
-  { code: 'en', label: 'English', flag: '🇬🇧' },
-  { code: 'ar', label: 'العربية', flag: '🇸🇦' },
-];
 
 export const DictionaryResultsHeader: React.FC<DictionaryResultsHeaderProps> = ({
   headerClassName,
@@ -391,8 +329,6 @@ export const DictionaryResultsHeader: React.FC<DictionaryResultsHeaderProps> = (
   canGoBack,
   goBack,
   onManage,
-  dictionaryLanguage,
-  onLanguageChange,
 }) => {
   const _ = useTranslation();
   return (
@@ -409,26 +345,9 @@ export const DictionaryResultsHeader: React.FC<DictionaryResultsHeaderProps> = (
           </button>
         ) : null}
       </div>
-      <div className='flex flex-1 items-center justify-center gap-1'>
-        <span data-testid='dict-title' className='line-clamp-1 text-center font-bold'>
-          {currentWord}
-        </span>
-        {onLanguageChange && (
-          <select
-            className='select select-ghost select-xs text-base-content/60 h-6 min-h-6 w-auto text-[11px]'
-            value={dictionaryLanguage || 'ru'}
-            onChange={(e) => onLanguageChange(e.target.value)}
-            aria-label={_('Dictionary language')}
-            title={_('Dictionary language')}
-          >
-            {DICT_LANGS.map((l) => (
-              <option key={l.code} value={l.code}>
-                {l.flag} {l.label}
-              </option>
-            ))}
-          </select>
-        )}
-      </div>
+      <span data-testid='dict-title' className='line-clamp-1 flex-1 text-center font-bold'>
+        {currentWord}
+      </span>
       <div className='flex h-8 w-8 items-center justify-center'>
         {onManage ? (
           <button
@@ -458,7 +377,6 @@ export const DictionaryResultsBody: React.FC<DictionaryResultsBodyProps> = ({
   resolveWebSearchUrl,
   onWebSearchClickTauri,
   noProvidersAtAll,
-  currentWord,
 }) => {
   const _ = useTranslation();
   return (
@@ -482,17 +400,11 @@ export const DictionaryResultsBody: React.FC<DictionaryResultsBodyProps> = ({
                   {visibleDefinitionProviders.map((p) => {
                     const card = cards[p.id];
                     const isLoading = !card || card.state === 'loading';
-                    const isError = card?.state === 'error';
-                    const isEmpty = card?.state === 'empty';
-                    const isUnsupported = card?.state === 'unsupported';
-                    const isFailed = isError || isEmpty || isUnsupported;
                     const expanded = card?.expanded ?? false;
                     const sourceLabel =
                       card?.outcome?.ok && card.outcome.sourceLabel
                         ? card.outcome.sourceLabel
                         : _(p.label);
-                    const errorMessage =
-                      card?.outcome && !card.outcome.ok ? card.outcome.message || '' : '';
                     return (
                       <li key={p.id}>
                         <div
@@ -533,51 +445,12 @@ export const DictionaryResultsBody: React.FC<DictionaryResultsBodyProps> = ({
                               isLoading && 'hidden',
                               !isLoading &&
                                 !expanded &&
-                                !isFailed &&
                                 'line-clamp-4 max-h-40 overflow-hidden [-webkit-box-orient:vertical] [display:-webkit-box]',
                             )}
                           />
                           {!isLoading && (
-                            <div
-                              className={clsx(
-                                'border-base-content/10 -me-4 mt-2 border-b pb-2',
-                                isFailed && 'border-dashed',
-                              )}
-                            >
+                            <div className='border-base-content/10 -me-4 mt-2 border-b pb-2'>
                               <span className='not-eink:opacity-60 text-xs'>{sourceLabel}</span>
-                              {isFailed && (
-                                <div
-                                  data-testid='dict-card-error'
-                                  className='not-eink:opacity-50 mt-1 text-xs italic'
-                                >
-                                  {isEmpty && (
-                                    <span>
-                                      {' — '}
-                                      {_('No results found for')} &quot;{currentWord}&quot;
-                                    </span>
-                                  )}
-                                  {isUnsupported && (
-                                    <span>
-                                      {' — '}
-                                      {errorMessage
-                                        ? _('Unsupported dictionary: {{reason}}').replace(
-                                            '{{reason}}',
-                                            errorMessage,
-                                          )
-                                        : _('Unsupported dictionary: {{reason}}').replace(
-                                            '{{reason}}',
-                                            _('Unknown error'),
-                                          )}
-                                    </span>
-                                  )}
-                                  {isError && (
-                                    <span>
-                                      {' — '}
-                                      {errorMessage || _('An error occurred')}
-                                    </span>
-                                  )}
-                                </div>
-                              )}
                             </div>
                           )}
                         </div>

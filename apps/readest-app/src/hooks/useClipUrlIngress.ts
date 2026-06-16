@@ -34,7 +34,7 @@ interface PendingShareSave {
  *
  *   2. iOS Share-Extension App Group queue — the extension writes
  *      `{url, groupId?, groupName?}` payloads into the shared
- *      NSUserDefaults at `group.com.liskinlabs.risale-ai-studio`, and the host
+ *      NSUserDefaults at `group.com.bilingify.readest`, and the host
  *      plugin (NativeBridgePlugin) drains them on foreground by calling
  *      `window.__readestOnShareExtensionPending(saves)`. Same ingest
  *      pipeline, but the chosen library group is preserved.
@@ -124,7 +124,7 @@ export function useClipUrlIngress() {
       // we can share the http(s) clip path with the Android side:
       //
       //   - Universal Link (primary):
-      //       https://web.risale-ai-studio.com/clip?url=<encoded>
+      //       https://web.readest.com/clip?url=<encoded>
       //   - Custom URL scheme (fallback):
       //       readest://clip?url=<encoded>
       const isClipUrl =
@@ -146,7 +146,7 @@ export function useClipUrlIngress() {
       // Only act on http(s). file://, content://, blob: and data: belong
       // to other consumers (or aren't shareable URLs).
       if (!/^https?:\/\//i.test(url)) return;
-      // Annotation deep links can come over https (web.risale-ai-studio.com).
+      // Annotation deep links can come over https (web.readest.com).
       // Skip them — useOpenAnnotationLink owns that path.
       if (parseAnnotationDeepLink(url)) return;
       void clipAndImport(url);

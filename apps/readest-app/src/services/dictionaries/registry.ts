@@ -23,15 +23,12 @@ import { BUILTIN_PROVIDER_IDS } from './types';
 import { isSystemDictionarySupported } from './systemDictionary';
 import { wiktionaryProvider } from './providers/wiktionaryProvider';
 import { wikipediaProvider } from './providers/wikipediaProvider';
-import { createRisaleLugatProvider } from './providers/risaleLugatProvider';
-import { aiDictionaryProvider } from './providers/aiDictionaryProvider';
-import { createStarDictProvider } from './providers/starDictProvider';
+import { createStarDictProvider, type DictionaryFileOpener } from './providers/starDictProvider';
 import { createMdictProvider } from './providers/mdictProvider';
 import { createDictProvider } from './providers/dictProvider';
 import { createSlobProvider } from './providers/slobProvider';
 import { createWebSearchProvider } from './providers/webSearchProvider';
 import { getBuiltinWebSearch } from './webSearchTemplates';
-import { AppService } from '@/types/system';
 
 const instanceCache = new Map<string, DictionaryProvider>();
 
@@ -43,22 +40,12 @@ interface RegistryArgs {
    * dictionaries — their providers open files via this accessor on first
    * lookup. Builtin-only callers (e.g. tests) may omit it.
    */
-  fs?: AppService;
+  fs?: DictionaryFileOpener;
 }
 
-const builtinFor = (id: string, fs?: AppService): DictionaryProvider | undefined => {
+const builtinFor = (id: string): DictionaryProvider | undefined => {
   if (id === BUILTIN_PROVIDER_IDS.wiktionary) return wiktionaryProvider;
   if (id === BUILTIN_PROVIDER_IDS.wikipedia) return wikipediaProvider;
-  if (id === BUILTIN_PROVIDER_IDS.risaleLugat) {
-    if (fs) return createRisaleLugatProvider(fs);
-    console.warn(
-      '[Dictionary Registry] Risale Lugat is enabled but AppService is not available — ' +
-        'the provider will be skipped. This may happen during initial app mount. ' +
-        'If this persists, check the EnvContext provider.',
-    );
-    return undefined;
-  }
-  if (id === BUILTIN_PROVIDER_IDS.aiDictionary) return aiDictionaryProvider;
   // System dictionary is a sentinel — it has no in-popup UI. The
   // annotator handles it before reaching the popup; the registry
   // filters it out of `getEnabledProviders` so no empty tab appears.
@@ -80,12 +67,12 @@ const findWebTemplate = (id: string, settings: DictionarySettings): WebSearchEnt
 const getOrCreate = (
   id: string,
   dict: ImportedDictionary | undefined,
-  fs: AppService | undefined,
+  fs: DictionaryFileOpener | undefined,
   settings: DictionarySettings,
 ): DictionaryProvider | undefined => {
   const cached = instanceCache.get(id);
   if (cached) return cached;
-  const builtin = builtinFor(id, fs);
+  const builtin = builtinFor(id);
   if (builtin) {
     instanceCache.set(id, builtin);
     return builtin;
@@ -145,12 +132,12 @@ export const getEnabledProviders = ({
     // annotator's "Dictionary" button.
     if (id === BUILTIN_PROVIDER_IDS.systemDictionary) continue;
     if (id.startsWith('builtin:')) {
-      const provider = getOrCreate(id, undefined, fs, settings);
+      const provider = getOrCreate(id, undefined, undefined, settings);
       if (provider) out.push(provider);
       continue;
     }
     if (id.startsWith('web:')) {
-      const provider = getOrCreate(id, undefined, fs, settings);
+      const provider = getOrCreate(id, undefined, undefined, settings);
       if (provider) out.push(provider);
       continue;
     }

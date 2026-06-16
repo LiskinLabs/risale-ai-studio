@@ -96,13 +96,6 @@ const BooknoteView: React.FC<{
     return findNearestCfi(allSorted, progress?.location);
   }, [progress?.location, sortedGroups]);
 
-  const handleBrowseBookNotes = useCallback(() => {
-    if (filteredNotes.length === 0) return;
-    const sorted = [...filteredNotes].sort((a, b) => CFI.compare(a.cfi, b.cfi));
-    setActiveBooknoteType(bookKey, type);
-    setBooknoteResults(bookKey, sorted);
-  }, [filteredNotes, bookKey, type, setActiveBooknoteType, setBooknoteResults]);
-
   // Index of the nearest note in the flattened list (-1 when none). Memoized so
   // the scroll effect and the OverlayScrollbars `initialized` callback share a
   // single source of truth.
@@ -113,6 +106,13 @@ const BooknoteView: React.FC<{
         : -1,
     [nearestCfi, flatItems],
   );
+
+  const handleBrowseBookNotes = useCallback(() => {
+    if (filteredNotes.length === 0) return;
+    const sorted = [...filteredNotes].sort((a, b) => CFI.compare(a.cfi, b.cfi));
+    setActiveBooknoteType(bookKey, type);
+    setBooknoteResults(bookKey, sorted);
+  }, [filteredNotes, bookKey, type, setActiveBooknoteType, setBooknoteResults]);
 
   // ---- Virtualization wiring (mirrors TOCView pattern) ----
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -219,27 +219,33 @@ const BooknoteView: React.FC<{
   useEffect(() => {
     if (nearestIndex < 0) return;
     if (nearestCfi === lastScrolledCfiRef.current) return;
-    // Skip the very first scroll — it's handled by initialTopMostItemIndex
-    // (Virtuoso native centering) + the initialized re-apply above.
+    lastScrolledCfiRef.current = nearestCfi;
+    // initialTopMostItemIndex already centered the mount position; a
+    // scrollToIndex that races Virtuoso's first render no-ops or wedges it, so
+    // skip this one and let the `initialized` re-apply restore it if needed.
     if (initialScrollHandledRef.current) {
       initialScrollHandledRef.current = false;
-      lastScrolledCfiRef.current = nearestCfi;
       return;
     }
     const isEink = document.documentElement.getAttribute('data-eink') === 'true';
-    const center = visibleCenterRef.current;
-    // If the nearest note is less than 6 visible rows away from the current
-    // window center, smooth-scroll to it (feels like tracking the reading
-    // position without jarring). If it's further, jump instantly so the user
-    // doesn't wait through a long animation. Threshold mirrors TOCView.
-    const far = Math.abs(nearestIndex - center) > 5;
-    virtuosoRef.current?.scrollToIndex({
-      index: nearestIndex,
-      align: 'center',
-      behavior: isEink || far ? 'auto' : 'smooth',
-    });
-    lastScrolledCfiRef.current = nearestCfi;
-  }, [nearestCfi, flatItems, nearestIndex, initialTopIndex]);
+    // Jump instantly for far moves (and on eink, which ghosts during a smooth
+    // animation) to avoid blanking the virtualized list mid-animation; keep
+    // smooth only for short, in-session progress updates (mirrors TOCView). A
+    // far instant jump can land short until the target rows are measured, so
+    // re-assert once on the next frame.
+    const distance = Math.abs(nearestIndex - visibleCenterRef.current);
+    const behavior = isEink || distance > 16 ? 'auto' : 'smooth';
+    virtuosoRef.current?.scrollToIndex({ index: nearestIndex, align: 'center', behavior });
+    if (behavior === 'auto') {
+      requestAnimationFrame(() => {
+        virtuosoRef.current?.scrollToIndex({
+          index: nearestIndex,
+          align: 'center',
+          behavior: 'auto',
+        });
+      });
+    }
+  }, [nearestCfi, nearestIndex]);
 
   const renderItem = useCallback(
     (index: number) => {
@@ -309,17 +315,17 @@ const BooknoteView: React.FC<{
           <Virtuoso
             ref={virtuosoRef}
             scrollerRef={handleScrollerRef}
+            initialTopMostItemIndex={
+              initialTopIndex > 0 ? { index: initialTopIndex, align: 'center' } : 0
+            }
+            rangeChanged={({ startIndex, endIndex }) => {
+              visibleCenterRef.current = Math.floor((startIndex + endIndex) / 2);
+            }}
             style={{ height: containerHeight }}
             totalCount={flatItems.length}
             computeItemKey={(index) => flatItems[index]?.key ?? index}
             itemContent={renderItem}
             overscan={500}
-            initialTopMostItemIndex={
-              initialTopIndex > 0 ? { index: initialTopIndex, align: 'center' } : undefined
-            }
-            rangeChanged={({ startIndex, endIndex }) => {
-              visibleCenterRef.current = Math.floor((startIndex + endIndex) / 2);
-            }}
           />
         </div>
       )}

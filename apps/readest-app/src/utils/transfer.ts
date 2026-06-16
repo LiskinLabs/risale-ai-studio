@@ -31,22 +31,15 @@ export const webUpload = (file: File, uploadUrl: string, onProgress?: ProgressHa
       }
     };
 
-    xhr.onload = async () => {
+    xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
         resolve();
       } else {
-        const responseText = xhr.responseText;
-        console.error(`Upload failed. Status: ${xhr.status}, Response: ${responseText}`);
-        reject(new Error(`Upload failed with status ${xhr.status}: ${responseText}`));
+        reject(new Error(`Upload failed with status ${xhr.status}`));
       }
     };
 
-    xhr.onerror = () => {
-      console.error(
-        'XHR Network Error during upload. This often indicates CORS issues, SSL errors, or invalid signed URLs.',
-      );
-      reject(new Error('Upload failed (Network Error)'));
-    };
+    xhr.onerror = () => reject(new Error('Upload failed'));
 
     xhr.send(file);
   });

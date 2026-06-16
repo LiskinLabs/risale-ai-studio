@@ -261,6 +261,10 @@ export abstract class BaseAppService implements AppService {
     return BookSvc.importBook(this.fs, file, books, {
       saveBookConfig: this.saveBookConfig.bind(this),
       generateCoverImageUrl: this.generateCoverImageUrl.bind(this),
+      // Pass the host platform through so the in-place fast path and the
+      // lookup index can normalize source paths consistently on
+      // case-insensitive filesystems (macOS / iOS / Windows).
+      osPlatform: this.osPlatform,
       ...options,
     });
   }
@@ -326,7 +330,6 @@ export abstract class BaseAppService implements AppService {
       replicaId,
       filename,
       dst,
-      base,
       onProgress,
     });
   }
@@ -388,6 +391,10 @@ export abstract class BaseAppService implements AppService {
 
   async loadBookContent(book: Book): Promise<BookContent> {
     return BookSvc.loadBookContent(this.fs, book);
+  }
+
+  async resolveNativeBookFilePath(book: Book): Promise<string | null> {
+    return BookSvc.resolveNativeBookFilePath(this.fs, this.resolveFilePath.bind(this), book);
   }
 
   async loadBookConfig(book: Book, settings: SystemSettings): Promise<BookConfig> {

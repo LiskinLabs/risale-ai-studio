@@ -15,7 +15,7 @@ import type { DBSendAllowedSender, DBSendInboxItem } from '@/types/sendRecords';
 import SubPageHeader from '../SubPageHeader';
 import { BoxedList, SectionTitle, SettingLabel, SettingsSwitchRow } from '../primitives';
 
-interface SendToRisaleAIStudioFormProps {
+interface SendToReadestFormProps {
   onBack: () => void;
 }
 
@@ -33,7 +33,7 @@ function suffixOf(address: string): string {
   return address.slice(slugOf(address).length);
 }
 
-const SendToRisaleAIStudioForm: React.FC<SendToRisaleAIStudioFormProps> = ({ onBack }) => {
+const SendToReadestForm: React.FC<SendToReadestFormProps> = ({ onBack }) => {
   const _ = useTranslation();
   const router = useRouter();
   const { user } = useAuth();
@@ -90,7 +90,7 @@ const SendToRisaleAIStudioForm: React.FC<SendToRisaleAIStudioFormProps> = ({ onB
       setSenders(sendersData.senders);
       setActivity(inboxData.items);
     } catch {
-      toast(_('Could not load Send to Risale AI Studio settings'), 'error');
+      toast(_('Could not load Send to Readest settings'), 'error');
     } finally {
       setLoading(false);
     }
@@ -189,7 +189,7 @@ const SendToRisaleAIStudioForm: React.FC<SendToRisaleAIStudioFormProps> = ({ onB
     <div className='my-4 w-full'>
       <SubPageHeader
         parentLabel={_('Integrations')}
-        currentLabel={_('Send to Risale AI Studio')}
+        currentLabel={_('Send to Readest')}
         description={_('Email books and articles straight into your library.')}
         onBack={onBack}
       />
@@ -234,7 +234,7 @@ const SendToRisaleAIStudioForm: React.FC<SendToRisaleAIStudioFormProps> = ({ onB
             <h3 className='text-base font-semibold'>{_('Email books straight to your library')}</h3>
             <p className='text-base-content/70 max-w-sm text-sm leading-relaxed'>
               {_(
-                'Forward attachments and articles to your private Risale AI Studio address. Available on the Plus, Pro, and Lifetime plans.',
+                'Forward attachments and articles to your private Readest address. Available on the Plus, Pro, and Lifetime plans.',
               )}
             </p>
             <button
@@ -418,4 +418,4 @@ const SendToRisaleAIStudioForm: React.FC<SendToRisaleAIStudioFormProps> = ({ onB
   );
 };
 
-export default SendToRisaleAIStudioForm;
+export default SendToReadestForm;

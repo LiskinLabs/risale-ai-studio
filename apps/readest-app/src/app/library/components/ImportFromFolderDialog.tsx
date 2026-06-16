@@ -60,12 +60,12 @@ export interface ImportFromFolderResult {
   /**
    * When `true`, register the directory as an external library folder
    * (`settings.externalLibraryFolders`) and import its books in place
-   * — Risale AI Studio will read each file straight from its original location
+   * — Readest will read each file straight from its original location
    * instead of copying it into Books/<hash>/. Sidecars (cover, config,
-   * notes) still live in Risale AI Studio's data dir, so deleting the local
-   * copy of a book on Risale AI Studio's side will physically remove the
+   * notes) still live in Readest's data dir, so deleting the local
+   * copy of a book on Readest's side will physically remove the
    * source file under the registered folder. Defaults to `false`,
-   * which keeps the legacy "copy into Risale AI Studio" behaviour and leaves
+   * which keeps the legacy "copy into Readest" behaviour and leaves
    * the registered folder list untouched.
    */
   readInPlace: boolean;

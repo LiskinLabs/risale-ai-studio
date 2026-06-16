@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const isDev = process.env['NODE_ENV'] === 'development';
-const appPlatform = process.env['NEXT_PUBLIC_APP_PLATFORM'] || 'web';
+const appPlatform = process.env['NEXT_PUBLIC_APP_PLATFORM'];
 
 if (isDev) {
   const { initOpenNextCloudflareForDev } = await import('@opennextjs/cloudflare');
@@ -17,8 +17,6 @@ const exportOutput = appPlatform !== 'web' && !isDev;
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Type checking is done separately via tsgo in CI — don't fail builds
-  typescript: { ignoreBuildErrors: true },
   // Ensure Next.js uses SSG instead of SSR
   // https://nextjs.org/docs/pages/building-your-application/deploying/static-exports
   output: exportOutput ? 'export' : undefined,
@@ -29,21 +27,18 @@ const nextConfig = {
     unoptimized: true,
   },
   devIndicators: false,
-  // React Compiler requires babel-plugin-react-compiler in node_modules.
-  // Enable when the dependency is reliably installed in the build pipeline.
-  // reactCompiler: true,
   experimental: {
     // Persist Turbopack's compilation cache to `.next/` so CI can restore it
     // between runs. Dev caching is on by default since Next 16.1; build
     // caching is opt-in (beta).
     turbopackFileSystemCacheForDev: true,
-    turbopackFileSystemCacheForBuild: false,
+    turbopackFileSystemCacheForBuild: true,
   },
   // Configure assetPrefix or else the server won't properly resolve your assets.
   assetPrefix: '',
   reactStrictMode: true,
   serverExternalPackages: ['isows'],
-  allowedDevOrigins: isDev ? ['192.168.2.120'] : [],
+  allowedDevOrigins: ['192.168.2.120'],
   webpack: (config) => {
     config.resolve.alias = {
       ...config.resolve.alias,
@@ -53,11 +48,7 @@ const nextConfig = {
       // Without an alias, webpack walks up from that source location and
       // can't find fflate (only installed in this app's node_modules).
       fflate: path.resolve(__dirname, 'node_modules/fflate'),
-      '@pdfjs': path.resolve(__dirname, 'public/vendor/pdfjs'),
-      '@simplecc': path.resolve(__dirname, 'public/vendor/simplecc'),
-      ...(appPlatform !== 'web'
-        ? { '@tursodatabase/database-wasm': false }
-        : { 'tauri-plugin-turso': false }),
+      ...(appPlatform !== 'web' ? { '@tursodatabase/database-wasm': false } : {}),
     };
     return config;
   },
@@ -67,11 +58,7 @@ const nextConfig = {
       // Turbopack rejects absolute paths in resolveAlias ("server relative
       // imports not implemented") — use a project-relative path.
       fflate: './node_modules/fflate',
-      '@pdfjs': './public/vendor/pdfjs',
-      '@simplecc': './public/vendor/simplecc',
-      ...(appPlatform !== 'web'
-        ? { '@tursodatabase/database-wasm': './src/utils/stub.ts' }
-        : { 'tauri-plugin-turso': './src/utils/stub.ts' }),
+      ...(appPlatform !== 'web' ? { '@tursodatabase/database-wasm': './src/utils/stub.ts' } : {}),
     },
   },
   transpilePackages: [
@@ -132,45 +119,11 @@ const nextConfig = {
           },
         ],
       },
-      {
-        source: '/(.*)',
-        headers: [
-          {
-            key: 'X-Content-Type-Options',
-            value: 'nosniff',
-          },
-          {
-            key: 'X-Frame-Options',
-            value: 'DENY',
-          },
-          {
-            key: 'Referrer-Policy',
-            value: 'strict-origin-when-cross-origin',
-          },
-          {
-            key: 'Strict-Transport-Security',
-            value: 'max-age=63072000; includeSubDomains; preload',
-          },
-          {
-            key: 'Content-Security-Policy',
-            value:
-              "default-src 'self'; " +
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.posthog.com https://*.stripe.com; " +
-              "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; " +
-              "img-src 'self' blob: data: https:; " +
-              "font-src 'self' data: https://fonts.gstatic.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; " +
-              "connect-src 'self' https://*.supabase.co https://*.posthog.com https://*.stripe.com https://*.deepl.com https://*.wikipedia.org https://*.wiktionary.org https://*.cloudflarestorage.com https://*.microsofttranslator.com https://translate.googleapis.com https://edge.microsoft.com https://*.googleusercontent.com https://*.sentry.io wss://speech.platform.bing.com; " +
-              "frame-src 'self' https://*.stripe.com; " +
-              "media-src 'self' blob:; " +
-              "worker-src 'self' blob:;",
-          },
-        ],
-      },
     ];
   },
 };
 
-const pwaDisabled = true; // isDev || appPlatform !== 'web';
+const pwaDisabled = isDev || appPlatform !== 'web';
 
 const withPWA = pwaDisabled
   ? (config) => config

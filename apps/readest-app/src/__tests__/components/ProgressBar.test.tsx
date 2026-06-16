@@ -27,19 +27,35 @@ vi.mock('@/context/EnvContext', () => ({
   useEnv: () => ({ envConfig: {}, appService: { isMobile: false, hasSafeAreaInset: false } }),
 }));
 
-vi.mock('@/store/readerStore', () => ({
-  useReaderStore: () => ({
+// Production code uses per-field selectors; mock must apply them so each
+// `useReaderStore((s) => s.method)` call returns the method, not the whole
+// state object.
+vi.mock('@/store/readerStore', () => {
+  const state = {
     getProgress: () => currentProgress,
     getViewSettings: () => currentViewSettings,
     getView: () => ({ renderer: currentRenderer }),
-  }),
+  };
+  return {
+    useReaderStore: <R,>(selector?: (s: typeof state) => R) => (selector ? selector(state) : state),
+  };
+});
+
+// ProgressBar now subscribes to progress via readerProgressStore so the
+// footer can re-render on page turns without dragging in the whole
+// readerStore. Tests must forward their mock state here too.
+vi.mock('@/store/readerProgressStore', () => ({
+  useBookProgress: () => currentProgress,
+  getBookProgress: () => currentProgress,
 }));
 
-vi.mock('@/store/bookDataStore', () => ({
-  useBookDataStore: () => ({
-    getBookData: () => currentBookData,
-  }),
-}));
+vi.mock('@/store/bookDataStore', () => {
+  const state = { getBookData: () => currentBookData };
+  return {
+    useBookDataStore: <R,>(selector?: (s: typeof state) => R) =>
+      selector ? selector(state) : state,
+  };
+});
 
 vi.mock('@/helpers/settings', () => ({
   saveViewSettings: (...args: unknown[]) => saveViewSettings(...args),
@@ -176,5 +192,28 @@ describe('ProgressBar — fixed-layout remaining pages', () => {
     expect(container.querySelector('.progressinfo')?.getAttribute('aria-label')).toContain(
       'pages left in chapter',
     );
+  });
+});
+
+describe('ProgressBar — decorative footer is not focusable', () => {
+  it('does not make the progress info container focusable (no stray focus ring)', () => {
+    // The footer info is a decorative role="presentation" element. A negative
+    // tabindex made it focusable, so long-pressing it on Android focused the
+    // div and the WebView painted its default focus ring as a persistent line
+    // across the bottom of the page (issue #4397). A decorative element must
+    // not be focusable so it can never receive a focus ring.
+    currentViewSettings = {
+      ...baseSettings,
+      progressInfoMode: 'all',
+    } as ViewSettings;
+    currentProgress = makeProgress(2, 5);
+    currentBookData = { isFixedLayout: false };
+    currentRenderer = { page: 1, pages: 4 };
+
+    const { container } = renderProgressBar();
+
+    const progressInfo = container.querySelector('.progressinfo');
+    expect(progressInfo).not.toBeNull();
+    expect(progressInfo!.hasAttribute('tabindex')).toBe(false);
   });
 });

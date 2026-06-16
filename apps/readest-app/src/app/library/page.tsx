@@ -1,8 +1,6 @@
 'use client';
 
 import clsx from 'clsx';
-
-const debug = process.env['NODE_ENV'] === 'development' ? console.log : (..._args: unknown[]) => {};
 import * as React from 'react';
 import { MdChevronRight } from 'react-icons/md';
 import { useState, useRef, useEffect, Suspense, useCallback } from 'react';
@@ -12,7 +10,7 @@ import { Book } from '@/types/book';
 import { AppService, DeleteAction } from '@/types/system';
 import { buildBookLookupIndex } from '@/services/bookService';
 import { navigateToLibrary, navigateToLogin, navigateToReader } from '@/utils/nav';
-import { formatAuthors, formatTitle, getPrimaryLanguage, listFormater } from '@/utils/book';
+import { getBookWithUpdatedMetadata, listFormater } from '@/utils/book';
 import { getImportErrorMessage } from '@/services/errors';
 import { ingestFile } from '@/services/ingestService';
 import { eventDispatcher } from '@/utils/event';
@@ -37,7 +35,6 @@ import { usePullToRefresh } from '@/hooks/usePullToRefresh';
 import { useTheme } from '@/hooks/useTheme';
 import { useUICSS } from '@/hooks/useUICSS';
 import { useDemoBooks } from './hooks/useDemoBooks';
-import { useBuiltinBooks } from './hooks/useBuiltinBooks';
 import { useBooksSync } from './hooks/useBooksSync';
 import { useInboxDrainer } from '@/hooks/useInboxDrainer';
 import { useOPDSSubscriptions } from '@/hooks/useOPDSSubscriptions';
@@ -81,7 +78,7 @@ import {
   findGroupById,
   getBreadcrumbs,
 } from './utils/libraryUtils';
-import { LibrarySkeleton } from './components/LibrarySkeleton';
+import Spinner from '@/components/Spinner';
 import LibraryHeader from './components/LibraryHeader';
 import Bookshelf from './components/Bookshelf';
 import LibraryEmptyState from './components/LibraryEmptyState';
@@ -218,7 +215,6 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
   const iconSize = useResponsiveSize(18);
   const viewSettings = settings.globalViewSettings;
   const demoBooks = useDemoBooks();
-  const builtinBooks = useBuiltinBooks();
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const handleScrollerRef = useCallback((el: HTMLDivElement | null) => {
     scrollRef.current = el;
@@ -331,7 +327,7 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
   // resulting URL becomes `/library?group=` instead of `/library`, which
   // Next.js does commit. The trailing empty `group=` is stripped via a
   // cleanup effect below (purely cosmetic URL rewrite). See
-  // https://github.com/LiskinLabs/risale-ai-studio/issues/3782.
+  // https://github.com/readest/readest/issues/3782.
   const handleLibraryNavigation = useCallback(
     (targetGroup: string) => {
       const currentGroup = searchParams?.get('group') || '';
@@ -376,7 +372,7 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
   useEffect(() => {
     const doCheckAppUpdates = async () => {
       if (appService?.hasUpdater && settings.autoCheckUpdates) {
-        await checkForAppUpdates(_);
+        await checkForAppUpdates(_, true, settings.updateChannel);
       } else if (appService?.hasUpdater === false) {
         checkAppReleaseNotes();
       }
@@ -453,11 +449,11 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
       const settings = await appService.loadSettings();
       const bookIds: string[] = [];
       for (const file of openWithFiles) {
-        debug('Open with book:', file);
+        console.log('Open with book:', file);
         try {
           const temp = appService.isMobile ? false : !settings.autoImportBooksOnOpen;
           // A file shared into Readest on mobile (the OS share-sheet) is a
-          // "Send to Risale AI Studio" capture — force it to the cloud so it syncs to
+          // "Send to Readest" capture — force it to the cloud so it syncs to
           // every device. Desktop "open with" keeps the autoUpload setting.
           const book = await ingestFile(
             {
@@ -472,13 +468,13 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
             bookIds.push(book.hash);
           }
         } catch (error) {
-          debug('Failed to import book:', file, error);
+          console.log('Failed to import book:', file, error);
         }
       }
       setLibrary(libraryBooks);
       appService.saveLibraryBooks(libraryBooks);
 
-      debug('Opening books:', bookIds);
+      console.log('Opening books:', bookIds);
       if (bookIds.length > 0) {
         setPendingNavigationBookIds(bookIds);
         return true;
@@ -502,7 +498,7 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
         bookIds.push(book.hash);
       }
     }
-    debug('Opening last books:', bookIds);
+    console.log('Opening last books:', bookIds);
     if (bookIds.length > 0) {
       setPendingNavigationBookIds(bookIds);
       return true;
@@ -675,24 +671,6 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [demoBooks, libraryLoaded]);
 
-  // Add built-in Risale books to library when imported
-  useEffect(() => {
-    if (builtinBooks.length > 0 && libraryLoaded) {
-      const newLibrary = [...libraryBooks];
-      for (const book of builtinBooks) {
-        const idx = newLibrary.findIndex((b) => b.hash === book.hash);
-        if (idx === -1) {
-          newLibrary.push(book);
-        } else {
-          newLibrary[idx] = book;
-        }
-      }
-      setLibrary(newLibrary);
-      appService?.saveLibraryBooks(newLibrary);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [builtinBooks, libraryLoaded]);
-
   const importBooks = async (files: SelectedFile[], groupId?: string) => {
     setLoading(true);
     const { library } = useLibraryStore.getState();
@@ -700,7 +678,12 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
     // O(1) instead of O(n) over the existing library. importBook also keeps
     // the index updated as new books are appended, so subsequent files in
     // the same batch see the additions.
-    const lookupIndex = buildBookLookupIndex(library);
+    //
+    // `osPlatform` is required for the `byFilePath` arm: on case-insensitive
+    // filesystems (macOS / iOS / Windows) two paths that differ only in
+    // casing must hash to the same key, so the in-place fast path in
+    // importBook can recognize a re-import of the same file.
+    const lookupIndex = buildBookLookupIndex(library, appService?.osPlatform);
     const failedImports: Array<{ filename: string; errorMessage: string }> = [];
     const successfulImports: string[] = [];
 
@@ -890,15 +873,6 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
 
   const handleBookDelete = (deleteAction: DeleteAction) => {
     return async (book: Book, syncBooks = true) => {
-      // Protect built-in books from deletion
-      if (book.builtin && (deleteAction === 'local' || deleteAction === 'both')) {
-        eventDispatcher.dispatch('toast', {
-          type: 'error',
-          message: _('Cannot delete built-in books'),
-        });
-        return false;
-      }
-
       const deletionMessages = {
         both: _('Book deleted: {{title}}', { title: book.title }),
         cloud: _('Deleted cloud backup of the book: {{title}}', { title: book.title }),
@@ -949,16 +923,15 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
   };
 
   const handleUpdateMetadata = async (book: Book, metadata: BookMetadata) => {
-    book.metadata = metadata;
-    book.title = formatTitle(metadata.title);
-    book.author = formatAuthors(metadata.author);
-    book.primaryLanguage = getPrimaryLanguage(metadata.language);
-    book.updatedAt = Date.now();
+    // Build a NEW book object instead of mutating `book` in place. <BookCover>
+    // is memoized and compares fields off the book, so mutating the existing
+    // object (which React holds as the previous snapshot) makes the comparator
+    // see no change and the library cover only refreshes after a full reload.
+    const updatedBook = getBookWithUpdatedMetadata(book, metadata);
     if (metadata.coverImageBlobUrl || metadata.coverImageUrl || metadata.coverImageFile) {
-      book.coverImageUrl = metadata.coverImageBlobUrl || metadata.coverImageUrl;
       try {
         await appService?.updateCoverImage(
-          book,
+          updatedBook,
           metadata.coverImageBlobUrl || metadata.coverImageUrl,
           metadata.coverImageFile,
         );
@@ -976,12 +949,12 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
     }
     metadata.coverImageBlobUrl = undefined;
     metadata.coverImageFile = undefined;
-    await updateBook(envConfig, book);
+    await updateBook(envConfig, updatedBook);
   };
 
   const handleImportBooksFromFiles = async () => {
     setIsSelectMode(false);
-    debug('Importing books from files...');
+    console.log('Importing books from files...');
     selectFiles({ type: 'books', multiple: true }).then((result) => {
       if (result.files.length === 0 || result.error) return;
       const groupId = searchParams?.get('group') || '';
@@ -998,26 +971,26 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
     // file path — no inbox, no upload-then-download, no server round-trip
     // — `importBooks` is the same call drag-drop uses.
     if (!isTauriAppPlatform()) return;
-    debug('[clip] start', { url });
+    console.log('[clip] start', { url });
     setIsSelectMode(false);
     const t0 = performance.now();
     const html = await invoke<string>('clip_url', { url, options: getClipOptions(_) });
-    debug('[clip] fetched', {
+    console.log('[clip] fetched', {
       bytes: html.length,
       ms: Math.round(performance.now() - t0),
     });
     const t1 = performance.now();
     const book = await convertToEpubWithWorker({ kind: 'page', html, url });
-    debug('[clip] epub built', {
+    console.log('[clip] epub built', {
       title: book.title,
       author: book.author || undefined,
       bytes: book.file.size,
       ms: Math.round(performance.now() - t1),
     });
     const groupId = searchParams?.get('group') || '';
-    debug('[clip] importing locally', { name: book.file.name, groupId: groupId || null });
+    console.log('[clip] importing locally', { name: book.file.name, groupId: groupId || null });
     await importBooks([{ file: book.file }], groupId);
-    debug('[clip] done');
+    console.log('[clip] done');
   };
 
   const handleImportBooksFromDirectory = async (dirPath?: string) => {
@@ -1371,12 +1344,7 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
       )}
     >
       <div
-        className={clsx(
-          'relative top-0 z-40 w-full',
-          viewSettings?.isEink
-            ? 'bg-base-100'
-            : 'bg-base-200/50 backdrop-blur-2xl saturate-[1.8] border-b border-base-content/10 shadow-sm',
-        )}
+        className='relative top-0 z-40 w-full'
         role='banner'
         tabIndex={-1}
         aria-label={_('Library Header')}
@@ -1406,7 +1374,11 @@ const LibraryPageContent = ({ searchParams }: { searchParams: ReadonlyURLSearchP
           max='100'
         />
       </div>
-      {loading && <LibrarySkeleton />}
+      {(loading || isSyncing) && (
+        <div className='fixed inset-0 z-50 flex items-center justify-center'>
+          <Spinner loading />
+        </div>
+      )}
       {currentGroupPath && (
         <div
           className={`transition-all duration-300 ease-in-out ${

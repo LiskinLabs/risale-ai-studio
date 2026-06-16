@@ -1,26 +1,26 @@
-# Risale AI Studio Library View for `readest.koplugin` (v1)
+# Readest Library View for `readest.koplugin` (v1)
 
 ## Context
 
 `apps/readest.koplugin` today is a **sync-only** plugin: when a book is open in
-KOReader, it pushes/pulls reading progress and annotations to/from the Risale AI Studio
+KOReader, it pushes/pulls reading progress and annotations to/from the Readest
 sync API and that's it. There is no concept of a "library" — the user has to
 discover and open books via KOReader's stock FileManager, and any books that
-exist in their Risale AI Studio cloud account (uploaded from the web/desktop app) are
+exist in their Readest cloud account (uploaded from the web/desktop app) are
 invisible inside KOReader.
 
-We want a **Library view** that mirrors Risale AI Studio's web/desktop library
+We want a **Library view** that mirrors Readest's web/desktop library
 (`apps/readest-app/src/app/library`), so a KOReader user can browse, search,
 group, sort, and open all of their books — both files already on disk and books
-that live only in Risale AI Studio cloud — from inside the plugin.
+that live only in Readest cloud — from inside the plugin.
 
 The intended outcome:
 
-1. A first-class library entry point inside the existing **Risale AI Studio** plugin menu.
-2. Books from Risale AI Studio cloud merge cleanly with local KOReader books (deduped via
+1. A first-class library entry point inside the existing **Readest** plugin menu.
+2. Books from Readest cloud merge cleanly with local KOReader books (deduped via
    the partial-md5 hash that both sides already use — proven by the existing
    progress/notes sync, which already round-trips this hash with the backend).
-3. View-menu controls match Risale AI Studio's web UI.
+3. View-menu controls match Readest's web UI.
 4. Cloud-only books are downloadable on tap.
 5. Storage backed by SQLite for fast queries on large libraries.
 
@@ -77,7 +77,7 @@ revised to address 24 findings. The final design below reflects those fixes.
 │    (incremental, max-ts)   │  │  - **/.sdr/ sidecar walk via   │
 │  - GET /storage/download   │  │    dismissableRunInSubprocess   │
 │    (fileKey =              │  │    (cancellable; matches        │
-│    {user_id}/Risale AI Studio/      │  │    KOReader's own pattern in    │
+│    {user_id}/Readest/      │  │    KOReader's own pattern in    │
 │    Books/{hash}/{hash}.ext)│  │    filemanagerfilesearcher.lua) │
 │  - server fallback         │  │  - reads partial_md5_checksum   │
 │    resolves R2 deployments │  │    from each sidecar; never     │
@@ -174,7 +174,7 @@ cover from the local file on next view (replacing the downloaded cover).
 
 **Removed from earlier draft** (per codex round 2):
 
-- ~~`safefilename.lua`~~ — not needed. The cloud `fileKey` we send is `{user_id}/Risale AI Studio/Books/{hash}/{hash}.{ext}` (S3-style; the filename middle is irrelevant because the server's `processFileKeys` fallback at `apps/readest-app/src/pages/api/storage/download.ts:99-107` matches by `(book_hash, file_key endsWith .ext)`). For the **local** download filename we still want something readable, but it's a trivial 5-line helper inlined in `syncbooks.lua` (`name:gsub('[<>:|"?*\x00-\x1F/\\]', '_')`) — no JS-parity port required.
+- ~~`safefilename.lua`~~ — not needed. The cloud `fileKey` we send is `{user_id}/Readest/Books/{hash}/{hash}.{ext}` (S3-style; the filename middle is irrelevant because the server's `processFileKeys` fallback at `apps/readest-app/src/pages/api/storage/download.ts:99-107` matches by `(book_hash, file_key endsWith .ext)`). For the **local** download filename we still want something readable, but it's a trivial 5-line helper inlined in `syncbooks.lua` (`name:gsub('[<>:|"?*\x00-\x1F/\\]', '_')`) — no JS-parity port required.
 
 ### Test harness (new in v1)
 
@@ -191,7 +191,7 @@ manual-tested only.
 | `apps/readest.koplugin/spec/library/parsesync_spec.lua`    | `parseSyncRow` — dummy hash filter, metadata-as-string vs metadata-as-table, ISO→unix, null group_name, `deleted_at` → `cloud_present=0` mapping.                                                                                                                               |
 | `apps/readest.koplugin/spec/library/exts_spec.lua`         | `EXTS` mapping completeness vs the 10 documented formats.                                                                                                                                                                                                                       |
 | `apps/readest.koplugin/spec/library/librarystore_spec.lua` | Schema migration from `user_version=0`, `upsertBook` cloud+local merge, `listBooks` filters/sort, `getGroups` cache invalidation, multi-account scoping (insert as user A, query as user B → empty). Uses real `:memory:` SQLite.                                               |
-| `apps/readest.koplugin/spec/library/filekey_spec.lua`      | Pure-function tests for the cloud `fileKey` builder in `syncbooks.lua` (extracted as a pure helper specifically for testability). Asserts shape `{user_id}/Risale AI Studio/Books/{hash}/{hash}.{ext}` for each format.                                                                  |
+| `apps/readest.koplugin/spec/library/filekey_spec.lua`      | Pure-function tests for the cloud `fileKey` builder in `syncbooks.lua` (extracted as a pure helper specifically for testability). Asserts shape `{user_id}/Readest/Books/{hash}/{hash}.{ext}` for each format.                                                                  |
 | `apps/readest.koplugin/.busted`                            | Busted runner config (`return { default = { ROOT = {"spec"} } }`).                                                                                                                                                                                                              |
 
 **Removed from earlier draft** (codex round 2 — stub surface explodes):
@@ -220,7 +220,7 @@ the koplugin README.
 | `apps/readest.koplugin/locales/en/translation.po` (run `node scripts/extract-i18n.js`) | New strings: "Library", "Search…", "Grid", "List", "Auto", "Columns", "Crop", "Fit", "Group by", "None", "Books", "Authors", "Series", "Groups", "Sort by", "Title", "Author", "Date Read", "Date Added", "Format", "Ascending", "Descending", "Download book", "Local only", "Cover Browser plugin required", "Rescan library", "Download folder…", etc. |
 | `apps/readest-app/scripts/lint-koplugin.js`                                            | Update path glob to **recurse** into `apps/readest.koplugin/library/**/*.lua` and `apps/readest.koplugin/spec/**/*.lua` — codex round 2 caught that the existing script (line 27) only scans top-level `*.lua`, so new code under `library/` would silently bypass luacheck.                                                                              |
 | `apps/readest-app/package.json`                                                        | Add `"test:lua": "cd ../readest.koplugin && busted"` script alongside existing `lint:lua`.                                                                                                                                                                                                                                                                |
-| `package.json` (root)                                                                  | Add `"test:lua": "pnpm --filter @LiskinLabs/risale-ai-studio-app run test:lua"` so the documented root command works.                                                                                                                                                                                                                                                 |
+| `package.json` (root)                                                                  | Add `"test:lua": "pnpm --filter @readest/readest-app run test:lua"` so the documented root command works.                                                                                                                                                                                                                                                 |
 | `.claude/rules/verification.md`                                                        | Add `pnpm test:lua` to the done-conditions list.                                                                                                                                                                                                                                                                                                          |
 
 **No backend (`apps/readest-app`) changes are required for v1.** The existing
@@ -238,8 +238,8 @@ opened via `lua-ljsqlite3` (the established KOReader pattern, see
 
 ```sql
 CREATE TABLE IF NOT EXISTS books (
-    user_id          TEXT NOT NULL,              -- Risale AI Studio auth user.id; scopes all queries
-    hash             TEXT NOT NULL,              -- partial md5 (KOReader == Risale AI Studio)
+    user_id          TEXT NOT NULL,              -- Readest auth user.id; scopes all queries
+    hash             TEXT NOT NULL,              -- partial md5 (KOReader == Readest)
     meta_hash        TEXT,
     title            TEXT NOT NULL,
     source_title     TEXT,
@@ -320,7 +320,7 @@ that orphans on account switch:
   indexable. Other metadata fields stay in `metadata_json` (read on demand).
 - `progress_lib` is `books.progress` from `/sync` (a tuple-shaped JSON like
   `[42, 250]`). It's distinct from KOReader's per-document reading position
-  and from Risale AI Studio's `book_configs.progress` (xpointer). Library view shows
+  and from Readest's `book_configs.progress` (xpointer). Library view shows
   `progress_lib` as the progress bar; tapping a book hands off to KOReader
   which uses its own DocSettings progress.
 - `uploaded_at` mirrors the cloud field — its presence is a hint that storage
@@ -346,7 +346,7 @@ that orphans on account switch:
 
 ## Merge strategy
 
-The hash is the join key. KOReader's `util.partialMD5` and Risale AI Studio's
+The hash is the join key. KOReader's `util.partialMD5` and Readest's
 `partialMD5(File)` produce the same digest — proven by the existing
 progress/notes sync in `apps/readest.koplugin/syncconfig.lua` and
 `syncannotations.lua`, which already round-trip
@@ -368,9 +368,9 @@ Per book row, two flags + a `deleted_at` tombstone from cloud:
 the new bit — it hides cloud-deletions even when the local file remains.
 
 **Why preserve the local file when cloud says deleted?** A KOReader user might
-have the file in `~/Books/` from a manual import that predates Risale AI Studio; cloud
+have the file in `~/Books/` from a manual import that predates Readest; cloud
 deletion shouldn't touch their filesystem. The Library view stops showing the
-book (since they explicitly deleted it on Risale AI Studio), but the file stays where
+book (since they explicitly deleted it on Readest), but the file stays where
 it is and the FileManager still surfaces it.
 
 **Sources of `local_present=1`:**
@@ -445,18 +445,18 @@ real key.
 This works for **any** `fileKey` shaped like:
 
 ```
-{user_id}/Risale AI Studio/Books/{hash}/{filename}.{ext}
+{user_id}/Readest/Books/{hash}/{filename}.{ext}
 ```
 
-(5-part path containing the substring `Risale AI Studio/Book` — JS `String.includes`
-matches `Risale AI Studio/Books` too.)
+(5-part path containing the substring `Readest/Book` — JS `String.includes`
+matches `Readest/Books` too.)
 
 So the koplugin constructs:
 
 | Asset       | fileKey                                       |
 | ----------- | --------------------------------------------- |
-| Book file   | `{user_id}/Risale AI Studio/Books/{hash}/{hash}.{ext}` |
-| Cover image | `{user_id}/Risale AI Studio/Books/{hash}/cover.png`    |
+| Book file   | `{user_id}/Readest/Books/{hash}/{hash}.{ext}` |
+| Cover image | `{user_id}/Readest/Books/{hash}/cover.png`    |
 
 **Why not the R2-style `{makeSafeFilename(title)}.{ext}` filename middle?**
 (codex round 2): the server's `processFileKeys` fallback at
@@ -491,7 +491,7 @@ the only consumer is KOReader's own filesystem.
 
 **Download flow** (cloud-only book tap):
 
-1. `withFreshToken(function() Risale AI StudioSync:getDownloadUrl(fileKey, cb) end)`
+1. `withFreshToken(function() ReadestSync:getDownloadUrl(fileKey, cb) end)`
 2. `httpclient` streams response to
    `<library_download_dir>/{safeTitle}.{ext}` — **flat directory** (KOReader
    users prefer flat layouts to nested hash dirs in their book folders).
@@ -518,7 +518,7 @@ file in storage, since `/storage/download` authorizes via the `files` table).
 
 **Cover download** (lazy, when grid item paints and cover_path is null):
 
-1. `getDownloadUrl({user_id}/Risale AI Studio/Books/{hash}/cover.png, cb)`.
+1. `getDownloadUrl({user_id}/Readest/Books/{hash}/cover.png, cb)`.
 2. Stream to `<DataStorage:getSettingsDir()>/readest_covers/{hash}.png`.
 3. On 404 (no cover uploaded), set `cover_path = "_missing"` sentinel so we
    don't keep retrying; render `FakeCover`.
@@ -552,7 +552,7 @@ Layout top-to-bottom:
 
 1. **Title bar** — back button + "Library" + count, view-menu button.
 2. **Search bar** — `InputContainer` opens `InputDialog` on tap; query is
-   debounced 500ms before re-querying SQLite (matches Risale AI Studio web behavior at
+   debounced 500ms before re-querying SQLite (matches Readest web behavior at
    `LibraryHeader.tsx:66-77`).
 3. **Optional group breadcrumb** — when `group_by != 'none'` and user drilled
    into a group ("Authors → Asimov").
@@ -575,7 +575,7 @@ Grid mode:                List mode:
 
 ### Cloud sync indicator
 
-Mirror Risale AI Studio's `BookItem` icon (`apps/readest-app/src/app/library/components/BookItem.tsx:161-186`):
+Mirror Readest's `BookItem` icon (`apps/readest-app/src/app/library/components/BookItem.tsx:161-186`):
 
 | `cloud_present` | `local_present` | Icon           | Tap behavior                                                                                                                                                                 |
 | --------------- | --------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -633,7 +633,7 @@ only the visible-page widgets.
 
 1. **Pull** (Library open + pull-to-refresh):
    - `lastPulledAt = LibraryStore:getLastPulledAt() or 0`
-   - `withFreshToken(function() Risale AI StudioSync:pullBooks(lastPulledAt, function(rows) … end) end)`
+   - `withFreshToken(function() ReadestSync:pullBooks(lastPulledAt, function(rows) … end) end)`
    - For each row: `parsed = parseSyncRow(row)` (skips dummy 00000…). If
      `deleted_at` set: mark `cloud_present=0` on existing row (book may still
      be local). Else: `upsertBook(parsed)`.
@@ -704,7 +704,7 @@ Codex flagged real perf risks for 4000-book libraries on 1GHz Kindles:
   `partial_page_repaint` adapted): hooks `updateItems` to schedule a
   full-waveform e-ink refresh when last page has fewer items than `perpage`.
   Eliminates ghost rows.
-- **Debounced search** (500ms, matching Risale AI Studio at `LibraryHeader.tsx:66-77`).
+- **Debounced search** (500ms, matching Readest at `LibraryHeader.tsx:66-77`).
 - **Cached group lists**: `getGroups(by)` returns memoized result; invalidated
   on settings change or `upsertBook`.
 - **Throttled cover extraction**: max 4 concurrent `extractInBackground` calls
@@ -804,7 +804,7 @@ Plan does NOT rebuild any of these; the plan adds glue + new UI shell + SQLite i
 
 ## Out of scope for v1 (explicit)
 
-- Push local-only books to Risale AI Studio cloud (upload).
+- Push local-only books to Readest cloud (upload).
 - Edit book metadata in koplugin.
 - Manual group create/move/delete.
 - Bulk-select operations.
@@ -901,7 +901,7 @@ Functional tests (manual, KOReader plugins have no headless harness):
 16. **Permission-denied subdir**: `chmod 000` a subdir of home_dir before
     Rescan → walk logs warning and continues with siblings; no crash.
 17. **Logout while Library is open**: open Library → swipe down to
-    `Risale AI Studio → Sign out` → Library widget detects auth loss → returns to
+    `Readest → Sign out` → Library widget detects auth loss → returns to
     "Sign in" placeholder, doesn't keep showing the previous user's data.
 18. **Slow connection**: throttle network to 64 kbps; tap a 5MB cloud-only
     book → progress dialog updates regularly, user can cancel via Back
@@ -934,7 +934,7 @@ pnpm test:lua            # runs busted spec/library/*_spec.lua
 23. All `parseSyncRow` cases pass (dummy filter, metadata-as-string vs metadata-as-table, ISO timestamps, null group_name, deleted_at mapping).
 24. All `librarystore` cases pass (schema, upsert merge, multi-account scoping, listBooks filters/sort, getGroups cache invalidation).
 25. All `exts` cases pass (10 formats map to expected extension).
-26. All `filekey` cases pass (cloud fileKey builder produces `{user_id}/Risale AI Studio/Books/{hash}/{hash}.{ext}` for each format; user_id urlencoded; collision-free across 100 random hashes).
+26. All `filekey` cases pass (cloud fileKey builder produces `{user_id}/Readest/Books/{hash}/{hash}.{ext}` for each format; user_id urlencoded; collision-free across 100 random hashes).
 
 Required project checks (per `.claude/rules/verification.md` — extended in v1):
 
@@ -952,7 +952,7 @@ node scripts/extract-i18n.js          # confirm new strings reach PO templates
 
 End-to-end smoke: open KOReader on macOS dev box (or sideload to an Android
 device), enable both `coverbrowser.koplugin` and `readest.koplugin`, log in to
-a known test Risale AI Studio account, walk steps 1–12 above.
+a known test Readest account, walk steps 1–12 above.
 
 ---
 
@@ -1008,7 +1008,7 @@ Optional next reviews:
 
 | #   | Codex finding                                                                                      | Resolution in revised plan                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | --- | -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| 1-4 | Cloud storage path was wrong (`Books/...` vs `Risale AI Studio/Books/...`, missing user_id, R2 vs S3 split) | Plugin sends `{user_id}/Risale AI Studio/Books/{hash}/{hash}.{ext}` for books and `{user_id}/Risale AI Studio/Books/{hash}/cover.png` for covers; existing server-side `processFileKeys` fallback at `apps/readest-app/src/pages/api/storage/download.ts:92-131` resolves both transparently via `(book_hash, extension)` lookup in the `files` table. Codex misread the fallback's substring match — `'Risale AI Studio/Books'.includes('Risale AI Studio/Book')` is `true`. **No backend change.** |
+| 1-4 | Cloud storage path was wrong (`Books/...` vs `Readest/Books/...`, missing user_id, R2 vs S3 split) | Plugin sends `{user_id}/Readest/Books/{hash}/{hash}.{ext}` for books and `{user_id}/Readest/Books/{hash}/cover.png` for covers; existing server-side `processFileKeys` fallback at `apps/readest-app/src/pages/api/storage/download.ts:92-131` resolves both transparently via `(book_hash, extension)` lookup in the `files` table. Codex misread the fallback's substring match — `'Readest/Books'.includes('Readest/Book')` is `true`. **No backend change.** |
 | 5   | Partial-md5 parity unproven                                                                        | User-confirmed: proven by existing `syncconfig.lua`/`syncannotations.lua` round-tripping `partial_md5_checksum` to `/sync` as `book_hash`. Skip test-vector matrix.                                                                                                                                                                                                                                                                                              |
 | 6   | Schema PK + `'pending:'` placeholder collides                                                      | Deferred-hashing path dropped entirely (per user). Local discovery only enumerates books with existing `partial_md5_checksum` (sidecar walk + ReadHistory). `hash TEXT PRIMARY KEY` stays clean — no placeholder rows.                                                                                                                                                                                                                                           |
 | 7   | Defer-hashing breaks dedupe                                                                        | Same as 6. Trade-off: unopened local files don't appear until user opens via FileManager once. Acknowledged in "Out of scope".                                                                                                                                                                                                                                                                                                                                   |
@@ -1023,7 +1023,7 @@ Optional next reviews:
 | 16  | Spore `pullChanges` requires `book`/`meta_hash`                                                    | Adding **new** Spore method `pullBooks(since)` instead of relaxing existing `pullChanges` (existing per-book pull still needs the params).                                                                                                                                                                                                                                                                                                                       |
 | 17  | Deleted book leaves local-only stale row                                                           | Documented: `cloud_present=0, local_present=1` is a valid state ("you deleted from cloud but the file is still on this device"). User can delete locally via FileManager. v1 does not auto-mirror cloud deletes to local files.                                                                                                                                                                                                                                  |
 | 18  | Initial `since=0` dummy `00000…` book                                                              | `parseSyncRow` filters this hash; verification step #11 confirms.                                                                                                                                                                                                                                                                                                                                                                                                |
-| 19  | Progress shape ambiguity                                                                           | Schema renames to `progress_lib` to make clear it's `books.progress` from `/sync` (a `[cur, total]` tuple), distinct from KOReader's per-document position and Risale AI Studio's `book_configs.progress` xpointer.                                                                                                                                                                                                                                                       |
+| 19  | Progress shape ambiguity                                                                           | Schema renames to `progress_lib` to make clear it's `books.progress` from `/sync` (a `[cur, total]` tuple), distinct from KOReader's per-document position and Readest's `book_configs.progress` xpointer.                                                                                                                                                                                                                                                       |
 | 20  | e-ink perf                                                                                         | Added `librarygrid.lua` windowing module + debounced search + cached `getGroups` + throttled cover extraction. Verification step #12 sets concrete benchmarks.                                                                                                                                                                                                                                                                                                   |
 | 21  | Coverbrowser dependency contradiction                                                              | Resolved as hard dependency; if absent, all books render `FakeCover` (no degraded grid mode).                                                                                                                                                                                                                                                                                                                                                                    |
 | 22  | Download path losing `{hash}/{title}` convention                                                   | Intentional in v4: flat `{library_download_dir}/{safeTitle}.{ext}` layout (user-confirmed — KOReader users prefer flat dirs in their book folder). Hash-based reconciliation still works via DocSettings `partial_md5_checksum` from `.sdr/` sidecars, independent of file location.                                                                                                                                                                             |

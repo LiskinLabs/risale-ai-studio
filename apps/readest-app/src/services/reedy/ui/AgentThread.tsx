@@ -1,6 +1,5 @@
 'use client';
 
-import React from 'react';
 import { useEffect, useRef, useState } from 'react';
 import { VList, type VListHandle } from 'virtua';
 import type { ReedyMessage } from '../store/reedyStore';
@@ -18,13 +17,11 @@ export function AgentThread({
   messages,
   isRunning,
   onSourceClick,
-  onSaveNote,
   emptyState,
 }: {
   messages: ReedyMessage[];
   isRunning: boolean;
-  onSourceClick?: (cfi: string, bookHash?: string) => void;
-  onSaveNote?: (text: string) => void;
+  onSourceClick?: (cfi: string) => void;
   emptyState?: React.ReactNode;
 }) {
   const ref = useRef<VListHandle>(null);
@@ -58,7 +55,7 @@ export function AgentThread({
   return (
     <VList ref={ref} className='reedy-agent-thread h-full w-full' onScroll={handleScroll}>
       {messages.map((m) => (
-        <MessageCard key={m.id} message={m} onSourceClick={onSourceClick} onSaveNote={onSaveNote} />
+        <MessageCard key={m.id} message={m} onSourceClick={onSourceClick} />
       ))}
       {isRunning && messages.length > 0 && (
         <div className='text-base-content/40 mb-4 px-3 text-[11px] italic'>Reedy is thinking…</div>

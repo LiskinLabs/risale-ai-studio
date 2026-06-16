@@ -1,5 +1,4 @@
 import clsx from 'clsx';
-import { Logo } from '@/components/Logo';
 import React, { useCallback, useRef, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { FaSearch } from 'react-icons/fa';
@@ -13,7 +12,6 @@ import { useEnv } from '@/context/EnvContext';
 import { useThemeStore } from '@/store/themeStore';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useLibraryStore } from '@/store/libraryStore';
-import { useKulliyatSearchStore } from '@/store/kulliyatSearchStore';
 import { useTrafficLight } from '@/hooks/useTrafficLight';
 import { useResponsiveSize } from '@/hooks/useResponsiveSize';
 import { debounce } from '@/utils/debounce';
@@ -55,7 +53,6 @@ const LibraryHeader: React.FC<LibraryHeaderProps> = ({
   const { appService } = useEnv();
   const { systemUIVisible, statusBarHeight } = useThemeStore();
   const { currentBookshelf } = useLibraryStore();
-  const openKulliyatSearch = useKulliyatSearchStore((s) => s.open);
   const [searchQuery, setSearchQuery] = useState(searchParams?.get('q') ?? '');
 
   const headerRef = useRef<HTMLDivElement>(null);
@@ -101,7 +98,7 @@ const LibraryHeader: React.FC<LibraryHeaderProps> = ({
     <div
       ref={headerRef}
       className={clsx(
-        'titlebar z-10 flex h-[60px] w-full items-center py-2 pr-4 sm:h-[56px]',
+        'titlebar z-10 flex h-[52px] w-full items-center py-2 pr-4 sm:h-[44px]',
         windowButtonVisible ? 'sm:pr-4' : 'sm:pr-6',
         isTrafficLightVisible ? 'pl-16' : 'pl-0 sm:pl-2',
       )}
@@ -112,11 +109,8 @@ const LibraryHeader: React.FC<LibraryHeaderProps> = ({
       }}
     >
       <div className='flex w-full items-center justify-between space-x-6 sm:space-x-12'>
-        <div className='exclude-title-bar-mousedown relative flex w-full items-center pl-2 sm:pl-4'>
-          <div className='flex items-center justify-center mr-3 sm:mr-6'>
-            <Logo size='md' className='text-primary drop-shadow-[0_0_8px_rgba(var(--p),0.5)]' />
-          </div>
-          <div className='relative flex h-10 w-full items-center sm:h-9'>
+        <div className='exclude-title-bar-mousedown relative flex w-full items-center pl-4'>
+          <div className='relative flex h-9 w-full items-center sm:h-7'>
             <span className='text-base-content/50 absolute ps-3'>
               <FaSearch className='h-4 w-4' />
             </span>
@@ -131,14 +125,9 @@ const LibraryHeader: React.FC<LibraryHeaderProps> = ({
                   : _('Search Books...')
               }
               onChange={handleSearchChange}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && searchQuery.trim().length > 2) {
-                  openKulliyatSearch(searchQuery);
-                }
-              }}
               spellCheck='false'
               className={clsx(
-                'search-input input h-10 w-full rounded-full pr-[30%] ps-10 sm:h-9',
+                'search-input input h-9 w-full rounded-full pr-[30%] ps-10 sm:h-7',
                 'bg-base-300/45 border-0',
                 'font-sans text-sm font-light',
                 'placeholder:text-base-content/50 truncate',

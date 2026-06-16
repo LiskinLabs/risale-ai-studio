@@ -1,6 +1,5 @@
 'use client';
 
-import React from 'react';
 import '@/utils/polyfill';
 import posthog from 'posthog-js';
 import i18n from '@/i18n/i18n';

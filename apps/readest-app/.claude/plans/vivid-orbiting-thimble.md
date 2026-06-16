@@ -35,7 +35,7 @@ After Codex revision the plan went through `/plan-ceo-review` (mode: SCOPE
 EXPANSION). The user picked Approach A (the cathedral) over per-kind LWW
 tables and manual share+import, and accepted **encrypted secrets in v1**
 (was deferred to v2 in the Codex-revised draft). The CEO review also
-locked a permanent strategic posture: **Risale AI Studio stays private-only**.
+locked a permanent strategic posture: **Readest stays private-only**.
 Cross-user content sharing (public/unlisted dictionary library) is not
 deferred — it is explicitly out of scope forever. See
 `~/.gstack/projects/readest-readest/ceo-plans/2026-05-06-replica-sync-cathedral.md`
@@ -103,7 +103,7 @@ for the full decision capture.
 - Local on-disk paths are per-adapter. Existing `BaseDir`s
   (`'Dictionaries'`, `'Fonts'`, `'Images'`) reused for the current
   kinds.
-- Cloud key for binary files: `${userId}/Risale AI Studio/replicas/<kind>/<id>/<filename>`.
+- Cloud key for binary files: `${userId}/Readest/replicas/<kind>/<id>/<filename>`.
   Filenames are server-validated: no `..`, no `/`, no `\`, length ≤ 255,
   charset restricted.
 - A `manifest.json` lists `{filename, byteSize, partialMd5}[]`. The
@@ -373,7 +373,7 @@ machinery.
 
 ### Sync passphrase
 
-- User sets a **sync passphrase** (separate from Risale AI Studio auth password)
+- User sets a **sync passphrase** (separate from Readest auth password)
   via Settings → Sync → "Set sync passphrase" inline modal.
 - **Lazy first prompt:** the passphrase modal first appears when the
   user attempts to push or pull an encrypted-field replica (e.g., first
@@ -750,7 +750,7 @@ PRs.
 | `ServerError` (5xx)        | yes     | retry 3x backoff                            | "Sync paused — retrying"           |
 | `DecryptError`             | yes     | prompt for passphrase                       | "Sync passphrase incorrect"        |
 | `IntegrityError`           | yes     | refuse remote; toast; preserve local        | "A synced field couldn't be verified" |
-| `UnsupportedAlgError`      | yes     | skip + log + suggest update                 | "Update Risale AI Studio to read this data" |
+| `UnsupportedAlgError`      | yes     | skip + log + suggest update                 | "Update Readest to read this data" |
 | `SaltNotFoundError`        | yes     | re-fetch salt list from server              | (transparent)                      |
 | `CryptoUnavailableError`   | yes     | disable encrypted-field sync                | "Browser doesn't support encryption" |
 | `NoPassphraseError`        | yes     | prompt for passphrase                       | "Set sync passphrase"              |
@@ -759,7 +759,7 @@ PRs.
 | `StorageError`             | yes     | retry with backoff                          | "Sync paused"                      |
 | `ManifestCommitError`      | yes     | retry 3x; then surface "stuck" toast        | "Dictionary X stuck syncing — retry" |
 | `UnknownKindError`         | yes     | skip + log                                  | (transparent)                      |
-| `SchemaTooNewError`        | yes     | skip + log + offer update                   | "Update Risale AI Studio"                   |
+| `SchemaTooNewError`        | yes     | skip + log + offer update                   | "Update Readest"                   |
 | `LegacyMigrationSkipError` | yes     | skip; surface "needs re-import"             | "Re-import to enable cloud sync"   |
 | `HlcPersistError`          | yes     | fall back to `serverMax + 1`                | (transparent)                      |
 

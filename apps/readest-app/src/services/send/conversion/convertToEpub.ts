@@ -6,7 +6,7 @@ import { detectLanguage } from '@/utils/lang';
 // browser extension imports `convertPageToEpub` and never reaches those
 // branches, so dynamic imports let webpack code-split them out of the
 // extension bundle entirely.
-import { sanitizeHtml, sanitizeForParsing } from './sanitizeHtml';
+import { sanitizeHtml, sanitizeForParsing } from '@/utils/sanitize';
 import { buildEpub } from './buildEpub';
 import { bundleAssets } from './assetBundler';
 import { generateCoverSvg } from './coverGenerator';
@@ -429,7 +429,7 @@ function baseName(fileName: string | undefined, fallback: string): string {
  * caller:
  *
  *   - The Tauri desktop / mobile `/send` URL field (Tauri-only path).
- *   - The browser extension's service worker (`extensions/send-to-risale-ai-studio`).
+ *   - The browser extension's service worker (`extensions/send-to-readest`).
  *   - Future: any other channel that captures the rendered DOM and wants
  *     the same EPUB out the other side.
  *

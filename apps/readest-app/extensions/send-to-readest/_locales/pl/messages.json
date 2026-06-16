@@ -1,14 +1,14 @@
 {
   "app_name": {
-    "message": "Wyślij do Risale AI Studio",
+    "message": "Wyślij do Readest",
     "description": "Extension name shown in the browser toolbar and the Chrome Web Store listing."
   },
   "app_description": {
-    "message": "Zapisuj strony internetowe w bibliotece Risale AI Studio",
+    "message": "Zapisuj strony internetowe w bibliotece Readest",
     "description": "Short description shown in the Chrome Web Store listing."
   },
   "action_title": {
-    "message": "Wyślij do Risale AI Studio",
+    "message": "Wyślij do Readest",
     "description": "Tooltip on the toolbar action button."
   }
 }

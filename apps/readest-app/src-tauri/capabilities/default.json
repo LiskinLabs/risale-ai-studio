@@ -28,7 +28,7 @@
       "identifier": "fs:scope-appdata-recursive",
       "allow": [
         {
-          "path": "$APPDATA/risale-ai-studio/**/*"
+          "path": "$APPDATA/Readest/**/*"
         }
       ],
       "deny": []
@@ -75,10 +75,10 @@
       "identifier": "fs:scope",
       "allow": [
         {
-          "path": "**/risale-ai-studio"
+          "path": "**/Readest"
         },
         {
-          "path": "**/risale-ai-studio/**/*"
+          "path": "**/Readest/**/*"
         },
         {
           "path": "**/com.github.johnfactotum.Foliate/**/*"
@@ -95,7 +95,7 @@
       "identifier": "http:default",
       "allow": [
         {
-          "url": "https://*.risale-ai-studio.com"
+          "url": "https://*.readest.com"
         },
         {
           "url": "https://github.com/readest/*"
@@ -176,17 +176,17 @@
         {
           "name": "start-readest",
           "cmd": "cmd",
-          "args": ["/C", "start", "", { "validator": "^.*Risale AI Studio(.*)\\.exe$" }]
+          "args": ["/C", "start", "", { "validator": "^.*Readest(.*)\\.exe$" }]
         },
         {
           "name": "chmod-appimage",
           "cmd": "chmod",
-          "args": ["+x", { "validator": "^.*Risale AI Studio(.*)\\.AppImage$" }]
+          "args": ["+x", { "validator": "^.*Readest(.*)\\.AppImage$" }]
         },
         {
           "name": "launch-appimage",
           "cmd": "setsid",
-          "args": [{ "validator": "^.*Risale AI Studio(.*)\\.AppImage$" }]
+          "args": [{ "validator": "^.*Readest(.*)\\.AppImage$" }]
         }
       ]
     },
@@ -196,6 +196,8 @@
     "haptics:allow-selection-feedback",
     "deep-link:default",
     "sharekit:default",
+    "clipboard-manager:allow-write-text",
+    "clipboard-manager:allow-read-text",
     "device-info:default",
     "turso:default",
     "native-tts:default",

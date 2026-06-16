@@ -15,7 +15,7 @@ export const getStripe = () => {
       process.env.NODE_ENV === 'production'
         ? process.env['NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_BASE64']
         : process.env['NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY_DEV_BASE64'];
-    stripePromise = loadStripe(publishableKey ? atob(publishableKey) : '');
+    stripePromise = loadStripe(atob(publishableKey!));
   }
   return stripePromise;
 };

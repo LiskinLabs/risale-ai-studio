@@ -125,7 +125,7 @@ describe('Paginator table layout', () => {
   it('renders layout tables without a horizontal scrollbar', async () => {
     paginator = createPaginator(320);
     paginator.open(layoutBook);
-    paginator.setStyles?.(getStyles(makeViewSettings(), undefined));
+    paginator.setStyles?.(getStyles(makeViewSettings(), undefined, []));
 
     let checked = 0;
     // Measure each section while it is still loaded (the paginator unloads
@@ -136,7 +136,7 @@ describe('Paginator table layout', () => {
       await stabilized;
       const doc = getSectionDoc(paginator, index);
       expect(doc, `section ${index} doc`).toBeTruthy();
-      paginator.setStyles?.(getStyles(makeViewSettings(), undefined));
+      paginator.setStyles?.(getStyles(makeViewSettings(), undefined, []));
       applyScrollableStyle(doc!);
 
       for (const wrapper of doc!.querySelectorAll<HTMLElement>(`.${SCROLL_WRAPPER_CLASS}`)) {
@@ -153,14 +153,14 @@ describe('Paginator table layout', () => {
   it('scrolls a table too wide for its column instead of clipping it', async () => {
     paginator = createPaginator(600);
     paginator.open(wideBook);
-    paginator.setStyles?.(getStyles(makeViewSettings(), undefined));
+    paginator.setStyles?.(getStyles(makeViewSettings(), undefined, []));
 
     const stabilized = waitForStabilized(paginator);
     await paginator.goTo({ index: 0 });
     await stabilized;
     const doc = getSectionDoc(paginator, 0);
     expect(doc, 'wide section doc').toBeTruthy();
-    paginator.setStyles?.(getStyles(makeViewSettings(), undefined));
+    paginator.setStyles?.(getStyles(makeViewSettings(), undefined, []));
     applyScrollableStyle(doc!);
 
     const wrapper = doc!.querySelector<HTMLElement>(`.${SCROLL_WRAPPER_CLASS}`)!;

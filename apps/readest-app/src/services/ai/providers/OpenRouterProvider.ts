@@ -49,8 +49,8 @@ export class OpenRouterProvider implements AIProvider {
       // Optional OpenRouter app attribution. Harmless for other OpenAI-
       // compatible backends (they ignore unknown headers).
       headers: {
-        'HTTP-Referer': 'https://risale-ai-studio.com',
-        'X-Title': 'Risale AI Studio',
+        'HTTP-Referer': 'https://readest.com',
+        'X-Title': 'Readest',
       },
       // Route chat completions / embeddings through our environment-aware
       // fetch so streaming responses bypass the renderer's CORS sandbox

@@ -96,7 +96,7 @@ const WebDAVBrowsePane: React.FC<WebDAVBrowsePaneProps> = ({ settings, onAppendS
   // —— Cleanup mode ——
   // GC surface for remote orphans (per-hash dirs whose local Book
   // has `deletedAt` set). When on, the listing is pinned to
-  // `risale-ai-studio/books/`, filtered down to those orphan rows, and the
+  // `Readest/books/`, filtered down to those orphan rows, and the
   // footer carries a batch Delete from server action.
   const [cleanupMode, setCleanupMode] = useState(false);
   /** Selected rows, keyed by `entry.path` (already the React list key). */

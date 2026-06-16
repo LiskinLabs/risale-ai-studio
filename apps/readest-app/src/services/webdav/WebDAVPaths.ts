@@ -3,7 +3,7 @@ import { EXTS } from '@/libs/document';
 import { makeSafeFilename } from '@/utils/misc';
 
 /**
- * Layout convention for the WebDAV "Risale AI Studio" subtree under the user's
+ * Layout convention for the WebDAV "Readest" subtree under the user's
  * configured rootPath. The whole sync feature is scoped to this subtree so
  * we never touch unrelated files in the user's WebDAV.
  *
@@ -22,7 +22,7 @@ import { makeSafeFilename } from '@/utils/misc';
  * inside the directory keeps the WebDAV client experience readable.
  */
 
-export const WEBDAV_BASE_DIR = 'Risale AI Studio';
+export const WEBDAV_BASE_DIR = 'Readest';
 export const WEBDAV_BOOKS_DIR = 'books';
 export const WEBDAV_LIBRARY_FILE = 'library.json';
 export const WEBDAV_BOOK_CONFIG_FILE = 'config.json';

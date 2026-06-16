@@ -27,7 +27,7 @@ import {
 
 /**
  * Per-book remote payload stored at
- *   <rootPath>/risale-ai-studio/books/<hash>/config.json
+ *   <rootPath>/Readest/books/<hash>/config.json
  *
  * The wire format is a thin envelope around the existing local
  * `BookConfig` so the merge logic can stay identical to readest's other
@@ -152,7 +152,7 @@ export interface PullResult {
 }
 
 /**
- * Pull `<rootPath>/risale-ai-studio/books/<hash>/config.json`, merge into the
+ * Pull `<rootPath>/Readest/books/<hash>/config.json`, merge into the
  * provided local config, and return the merged result. The caller is
  * responsible for writing the merged config back via the bookData store
  * (so this module stays free of React/store dependencies).
@@ -295,7 +295,7 @@ export interface PushBookFileResult {
 
 /**
  * Upload the book file binary to
- *   <rootPath>/risale-ai-studio/books/<hash>/<safe-title>.<ext>
+ *   <rootPath>/Readest/books/<hash>/<safe-title>.<ext>
  *
  * Idempotency story: the path lives under the per-hash directory, so the
  * remote location is uniquely determined by `book.hash` (the local hash
@@ -402,7 +402,7 @@ export const pushBookFile = async (
 
 /**
  * Upload the book's cover image to
- *   <rootPath>/risale-ai-studio/books/<hash>/cover.png
+ *   <rootPath>/Readest/books/<hash>/cover.png
  *
  * Same idempotency model as `pushBookFile`: HEAD-probe + size compare,
  * then PUT only when missing or sized differently. Covers are tiny
@@ -479,7 +479,7 @@ export const pullBookCover = async (
 };
 
 /**
- * Delete the per-book directory `<rootPath>/risale-ai-studio/books/<hash>/`
+ * Delete the per-book directory `<rootPath>/Readest/books/<hash>/`
  * — the file, the cover and the config.json — from the WebDAV
  * server in one round-trip.
  *
@@ -659,13 +659,17 @@ export interface SyncLibraryOptions {
  *   1. Load the local config from disk (skip the book if it has none —
  *      brand-new entries the user has never opened don't need to sync
  *      anything yet).
- *   2. `pushBookConfig` — creates `risale-ai-studio/books/<hash>/config.json`.
- *   3. `pushBookFile` (only when `syncBooks` is on) — HEAD-probes the
+ *   2. `pushBookConfig` — creates `Readest/books/<hash>/config.json`.
+ *   3. `pushBookCover` (whenever a cover loader was provided) —
+ *      HEAD-then-PUT, independent of `syncBooks`. Covers are part of
+ *      the book's metadata: they're tiny (~30–60 KB after the import
+ *      downscale), they can't be regenerated on a fresh device that
+ *      doesn't hold the book bytes, and users who only opt into
+ *      progress / notes sync still expect their bookshelf art to
+ *      appear on the receiving device. Failures are treated as
+ *      warnings, not hard failures.
+ *   4. `pushBookFile` (only when `syncBooks` is on) — HEAD-probes the
  *      friendly file name path, uploads if missing or size-mismatched.
- *   4. `pushBookCover` (only when `syncBooks` is on AND a cover loader
- *      was provided) — same HEAD-then-PUT pattern. Cover failures are
- *      treated as warnings, not failures, since they don't break the
- *      reading experience on the receiving device.
  *
  * Failures on a single book are caught and counted; we keep going so a
  * single bad apple doesn't abort the rest of the library. The aggregate
@@ -938,6 +942,25 @@ export const syncLibrary = async (
           await pushBookConfig(settings, book, config, options.deviceId);
           result.configsUploaded += 1;
         }
+        // Covers ride along with the config-level sync, NOT with
+        // syncBooks. They are conceptually part of the book's metadata
+        // (the receiving device can't regenerate them without the book
+        // bytes, which the user may have chosen not to sync), and at
+        // ~30–60 KB after the import-time downscale the bandwidth cost
+        // is negligible compared to the user benefit of "my shelf art
+        // shows up on every device". Failures here are warnings, not
+        // hard failures, so a flaky cover upload doesn't abort the
+        // rest of the per-book pipeline.
+        if (options.loadBookCover) {
+          try {
+            const coverResult = await pushBookCover(settings, book.hash, () =>
+              options.loadBookCover!(book),
+            );
+            if (coverResult.uploaded) result.coversUploaded += 1;
+          } catch (e) {
+            console.warn('WD library sync: cover failed', book.hash, e);
+          }
+        }
         if (options.syncBooks) {
           phase = 'upload-file';
           const fileResult = await pushBookFile(
@@ -950,16 +973,6 @@ export const syncLibrary = async (
             result.filesUploaded += 1;
           } else if (fileResult.reason === 'remote-matches') {
             result.filesAlreadyInSync += 1;
-          }
-          if (options.loadBookCover) {
-            try {
-              const coverResult = await pushBookCover(settings, book.hash, () =>
-                options.loadBookCover!(book),
-              );
-              if (coverResult.uploaded) result.coversUploaded += 1;
-            } catch (e) {
-              console.warn('WD library sync: cover failed', book.hash, e);
-            }
           }
         }
       } catch (e) {

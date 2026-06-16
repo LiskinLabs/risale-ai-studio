@@ -152,25 +152,13 @@ const indexedDBFileSystem: FileSystem = {
       content = await content.arrayBuffer();
     }
     return new Promise<void>((resolve, reject) => {
-      try {
-        const transaction = db.transaction('files', 'readwrite');
-        const store = transaction.objectStore('files');
+      const transaction = db.transaction('files', 'readwrite');
+      const store = transaction.objectStore('files');
 
-        store.put({ path: fp, content });
+      store.put({ path: fp, content });
 
-        transaction.oncomplete = () => resolve();
-        transaction.onerror = () => {
-          const error = transaction.error || new Error('Unknown IndexedDB transaction error');
-          console.error(`IndexedDB writeFile error for ${fp}:`, error);
-          reject(error);
-        };
-        transaction.onabort = () => {
-          reject(new Error(`IndexedDB transaction aborted for ${fp}`));
-        };
-      } catch (e) {
-        console.error(`IndexedDB transaction creation failed for ${fp}:`, e);
-        reject(e instanceof Error ? e : new Error(String(e)));
-      }
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
     });
   },
   async removeFile(path: string, base: BaseDir) {
@@ -178,20 +166,13 @@ const indexedDBFileSystem: FileSystem = {
     const db = await openIndexedDB();
 
     return new Promise<void>((resolve, reject) => {
-      try {
-        const transaction = db.transaction('files', 'readwrite');
-        const store = transaction.objectStore('files');
+      const transaction = db.transaction('files', 'readwrite');
+      const store = transaction.objectStore('files');
 
-        store.delete(fp);
+      store.delete(fp);
 
-        transaction.oncomplete = () => resolve();
-        transaction.onerror = () => {
-          const error = transaction.error || new Error('Unknown IndexedDB delete error');
-          reject(error);
-        };
-      } catch (e) {
-        reject(e instanceof Error ? e : new Error(String(e)));
-      }
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
     });
   },
   async createDir(path: string, base: BaseDir) {
@@ -363,6 +344,9 @@ export class WebAppService extends BaseAppService {
     },
   ): Promise<boolean> {
     const mimeType = options?.mimeType || 'application/octet-stream';
+    // Web has no filesystem path to read from, so `null` content (only the
+    // native-only "Send" flow passes it) degrades to an empty body.
+    const body = content ?? '';
     if (
       options?.share &&
       typeof navigator !== 'undefined' &&
@@ -370,7 +354,7 @@ export class WebAppService extends BaseAppService {
     ) {
       let shareData: ShareData | null = null;
       try {
-        const file = new File([content ?? new ArrayBuffer(0)], filename, { type: mimeType });
+        const file = new File([body], filename, { type: mimeType });
         const candidate: ShareData = { files: [file], title: filename };
         if (typeof navigator.canShare !== 'function' || navigator.canShare(candidate)) {
           shareData = candidate;
@@ -396,7 +380,7 @@ export class WebAppService extends BaseAppService {
       }
     }
     try {
-      const blob = new Blob([content ?? new ArrayBuffer(0)], { type: mimeType });
+      const blob = new Blob([body], { type: mimeType });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;

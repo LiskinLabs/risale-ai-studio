@@ -1,14 +1,14 @@
 {
   "app_name": {
-    "message": "Risale AI Studio'ga yuborish",
+    "message": "Readest'ga yuborish",
     "description": "Extension name shown in the browser toolbar and the Chrome Web Store listing."
   },
   "app_description": {
-    "message": "Veb-sahifalarni Risale AI Studio kutubxonangizga saqlang",
+    "message": "Veb-sahifalarni Readest kutubxonangizga saqlang",
     "description": "Short description shown in the Chrome Web Store listing."
   },
   "action_title": {
-    "message": "Risale AI Studio'ga yuborish",
+    "message": "Readest'ga yuborish",
     "description": "Tooltip on the toolbar action button."
   }
 }

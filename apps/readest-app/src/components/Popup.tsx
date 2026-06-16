@@ -1,4 +1,3 @@
-import React from 'react';
 import clsx from 'clsx';
 import { Position, isPointInRect } from '@/utils/sel';
 import { useEffect, useRef, useState } from 'react';

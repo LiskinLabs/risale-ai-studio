@@ -4,7 +4,7 @@ import { buildShareUrl, parseShareDeepLink } from '@/utils/share';
 describe('buildShareUrl', () => {
   it('builds the canonical https URL for a token', () => {
     expect(buildShareUrl('aBcDeFgHiJkLmNoPqRsTuV')).toBe(
-      'https://web.risale-ai-studio.com/s/aBcDeFgHiJkLmNoPqRsTuV',
+      'https://web.readest.com/s/aBcDeFgHiJkLmNoPqRsTuV',
     );
   });
 });
@@ -16,14 +16,14 @@ describe('parseShareDeepLink', () => {
     expect(parseShareDeepLink(`readest://share/${VALID_TOKEN}`)).toEqual({ token: VALID_TOKEN });
   });
 
-  it('parses https://web.risale-ai-studio.com/s/{token}', () => {
-    expect(parseShareDeepLink(`https://web.risale-ai-studio.com/s/${VALID_TOKEN}`)).toEqual({
+  it('parses https://web.readest.com/s/{token}', () => {
+    expect(parseShareDeepLink(`https://web.readest.com/s/${VALID_TOKEN}`)).toEqual({
       token: VALID_TOKEN,
     });
   });
 
-  it('parses *.risale-ai-studio.com subdomains for preview deploys', () => {
-    expect(parseShareDeepLink(`https://staging.risale-ai-studio.com/s/${VALID_TOKEN}`)).toEqual({
+  it('parses *.readest.com subdomains for preview deploys', () => {
+    expect(parseShareDeepLink(`https://staging.readest.com/s/${VALID_TOKEN}`)).toEqual({
       token: VALID_TOKEN,
     });
   });
@@ -49,17 +49,13 @@ describe('parseShareDeepLink', () => {
   });
 
   it('rejects nested or extra path segments', () => {
-    expect(
-      parseShareDeepLink(`https://web.risale-ai-studio.com/s/${VALID_TOKEN}/extra`),
-    ).toBeNull();
-    expect(
-      parseShareDeepLink(`https://web.risale-ai-studio.com/extra/s/${VALID_TOKEN}`),
-    ).toBeNull();
+    expect(parseShareDeepLink(`https://web.readest.com/s/${VALID_TOKEN}/extra`)).toBeNull();
+    expect(parseShareDeepLink(`https://web.readest.com/extra/s/${VALID_TOKEN}`)).toBeNull();
   });
 
   it('returns null for malformed input', () => {
     expect(parseShareDeepLink('')).toBeNull();
     expect(parseShareDeepLink('not-a-url')).toBeNull();
-    expect(parseShareDeepLink('ftp://web.risale-ai-studio.com/s/' + VALID_TOKEN)).toBeNull();
+    expect(parseShareDeepLink('ftp://web.readest.com/s/' + VALID_TOKEN)).toBeNull();
   });
 });

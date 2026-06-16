@@ -28,34 +28,29 @@ const publishDictDelete = (contentId: string): void => {
  */
 const BUILTIN_WEB_ORDER = [
   BUILTIN_WEB_SEARCH_IDS.google,
-  BUILTIN_WEB_SEARCH_IDS.tdkSozluk,
-  BUILTIN_WEB_SEARCH_IDS.sesliSozluk,
-  BUILTIN_WEB_SEARCH_IDS.vikisozluk,
   BUILTIN_WEB_SEARCH_IDS.urban,
   BUILTIN_WEB_SEARCH_IDS.merriamWebster,
+  BUILTIN_WEB_SEARCH_IDS.goodreads,
 ];
 
 const DEFAULT_DICTIONARY_SETTINGS: DictionarySettings = {
   providerOrder: [
-    BUILTIN_PROVIDER_IDS.aiDictionary,
-    BUILTIN_PROVIDER_IDS.risaleLugat,
     BUILTIN_PROVIDER_IDS.systemDictionary,
     BUILTIN_PROVIDER_IDS.wiktionary,
     BUILTIN_PROVIDER_IDS.wikipedia,
     ...BUILTIN_WEB_ORDER,
   ],
   providerEnabled: {
-    [BUILTIN_PROVIDER_IDS.aiDictionary]: true,
+    // System dictionary is opt-in — enabling it disables the rest (and
+    // vice versa) via the settings UI's exclusivity rule. Default off
+    // so existing users see no behavior change on upgrade.
     [BUILTIN_PROVIDER_IDS.systemDictionary]: false,
-    [BUILTIN_PROVIDER_IDS.risaleLugat]: true,
     [BUILTIN_PROVIDER_IDS.wiktionary]: true,
     [BUILTIN_PROVIDER_IDS.wikipedia]: true,
     [BUILTIN_WEB_SEARCH_IDS.google]: false,
-    [BUILTIN_WEB_SEARCH_IDS.tdkSozluk]: true,
-    [BUILTIN_WEB_SEARCH_IDS.sesliSozluk]: true,
-    [BUILTIN_WEB_SEARCH_IDS.vikisozluk]: true,
     [BUILTIN_WEB_SEARCH_IDS.urban]: false,
     [BUILTIN_WEB_SEARCH_IDS.merriamWebster]: false,
+    [BUILTIN_WEB_SEARCH_IDS.goodreads]: false,
   },
   webSearches: [],
 };

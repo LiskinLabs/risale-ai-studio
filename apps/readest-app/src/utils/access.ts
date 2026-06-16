@@ -31,7 +31,7 @@ export const getUserProfilePlan = (token: string): UserPlan => {
 };
 
 /**
- * Plans that include the "Send to Risale AI Studio via email" feature: Plus,
+ * Plans that include the "Send to Readest via email" feature: Plus,
  * Pro, and Lifetime (`purchase`). Free users see an upgrade card on
  * the client and get a 403 from the server endpoints that allocate /
  * rotate the address, plus a bounce from the inbound email Worker.

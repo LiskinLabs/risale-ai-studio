@@ -18,7 +18,7 @@ describe('isBlockedHost — internal names', () => {
   });
 
   test('allows normal public hostnames', () => {
-    for (const h of ['example.com', 'www.risale-ai-studio.com', 'sub.domain.co.uk']) {
+    for (const h of ['example.com', 'www.readest.com', 'sub.domain.co.uk']) {
       expect(isBlockedHost(h)).toBe(false);
     }
   });

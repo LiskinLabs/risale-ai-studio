@@ -59,14 +59,14 @@ describe('Paginator stabilization', () => {
       const neverResolves = new Promise<void>(() => {
         /* intentionally never resolves */
       });
-      const timeout = 200; // shorter for test (lenient enough for CI)
+      const timeout = 50; // shorter for test
       const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
       const start = Date.now();
       await Promise.race([Promise.all([neverResolves]), wait(timeout)]);
       const elapsed = Date.now() - start;
 
-      expect(elapsed).toBeLessThan(timeout + 80);
+      expect(elapsed).toBeLessThan(timeout + 50);
     });
 
     it('should resolve immediately if fonts are already loaded', async () => {
@@ -77,7 +77,7 @@ describe('Paginator stabilization', () => {
       await Promise.race([Promise.all([alreadyLoaded]), wait(3000)]);
       const elapsed = Date.now() - start;
 
-      expect(elapsed).toBeLessThan(100);
+      expect(elapsed).toBeLessThan(50);
     });
   });
 

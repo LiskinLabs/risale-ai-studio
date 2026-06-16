@@ -1,4 +1,3 @@
-import React from 'react';
 import { IconBaseProps } from 'react-icons';
 import { GenIcon } from 'react-icons/lib';
 

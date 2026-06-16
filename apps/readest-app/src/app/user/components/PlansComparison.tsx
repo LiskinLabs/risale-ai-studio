@@ -1,4 +1,3 @@
-import React from 'react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { AvailablePlan, PlanType, UserPlan } from '@/types/quota';
 import { useEnv } from '@/context/EnvContext';

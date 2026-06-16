@@ -1,14 +1,14 @@
 <div align="center">
-  <a href="https://risale-ai-studio.com?utm_source=github&utm_medium=referral&utm_campaign=readme" target="_blank">
-    <img src="https://github.com/LiskinLabs/risale-ai-studio/blob/main/apps/readest-app/src-tauri/icons/icon.png?raw=true" alt="Risale AI Studio Logo" width="20%" />
+  <a href="https://readest.com?utm_source=github&utm_medium=referral&utm_campaign=readme" target="_blank">
+    <img src="https://github.com/readest/readest/blob/main/apps/readest-app/src-tauri/icons/icon.png?raw=true" alt="Readest Logo" width="20%" />
   </a>
-  <h1>Risale AI Studio</h1>
+  <h1>Readest</h1>
   <br>
 
-[Risale AI Studio][link-website] is the world's premier digital library for the Risale-i Nur collection — a cross-platform ebook reader designed for immersive and deep reading experiences. Built as a modern rewrite of [Foliate](https://github.com/johnfactotum/foliate), it leverages [Next.js 16](https://github.com/vercel/next.js) and [Tauri v2](https://github.com/tauri-apps/tauri) to deliver a smooth, cross-platform experience across macOS, Windows, Linux, Android, iOS, and the Web. Features professional Turkish/Ottoman/Arabic/Russian typography, built-in Ottoman-Turkish dictionary, AI-powered study tools, and smart annotations.
+[Readest][link-website] is an open-source ebook reader designed for immersive and deep reading experiences. Built as a modern rewrite of [Foliate](https://github.com/johnfactotum/foliate), it leverages [Next.js 16](https://github.com/vercel/next.js) and [Tauri v2](https://github.com/tauri-apps/tauri) to deliver a smooth, cross-platform experience across macOS, Windows, Linux, Android, iOS, and the Web.
 
 [![Website][badge-website]][link-website]
-[![Web App][badge-web-app]][link-vercel]
+[![Web App][badge-web-app]][link-web-readest]
 [![OS][badge-platforms]][link-website]
 <br>
 [![Discord][badge-discord]][link-discord]
@@ -29,6 +29,7 @@
   <a href="#planned-features">Planned Features</a> •
   <a href="#screenshots">Screenshots</a> •
   <a href="#downloads">Downloads</a> •
+  <a href="#documentation">Documentation</a> •
   <a href="#getting-started">Getting Started</a> •
   <a href="#troubleshooting">Troubleshooting</a> •
   <a href="#support">Support</a> •
@@ -36,8 +37,8 @@
 </p>
 
 <div align="center">
-  <a href="https://risale-ai-studio.com" target="_blank">
-    <img src="./data/screenshots/landing_all_platforms.png" alt="Risale AI Studio Banner" width="100%" />
+  <a href="https://readest.com" target="_blank">
+    <img src="./data/screenshots/landing_all_platforms.png" alt="Readest Banner" width="100%" />
   </a>
 </div>
 
@@ -55,7 +56,7 @@
 | **[Parallel Read][link-parallel-read]**    | Read two books or documents simultaneously in a split-screen view.                                                     | ✅         |
 | **Customize Font and Layout**              | Adjust font, layout, theme mode, and theme colors for a personalized experience.                                       | ✅         |
 | **Code Syntax Highlighting**               | Read software manuals with rich coloring of code examples.                                                             | ✅         |
-| **File Association and Open With**         | Quickly open files in Risale AI Studio in your file browser with one-click.                                                     | ✅         |
+| **File Association and Open With**         | Quickly open files in Readest in your file browser with one-click.                                                     | ✅         |
 | **Library Management**                     | Organize, sort, and manage your entire ebook library.                                                                  | ✅         |
 | **OPDS/Calibre Integration**               | Integrate OPDS/Calibre to access online libraries and catalogs.                                                        | ✅         |
 | **Translate with DeepL and Yandex**        | From a single sentence to the entire book—translate instantly.                                                         | ✅         |
@@ -65,39 +66,6 @@
 | **Accessibility**                          | Provides full keyboard navigation and supports for screen readers such as VoiceOver, TalkBack, NVDA, and Orca.         | ✅         |
 | **Visual & Focus Aids**                    | Reading ruler, paragraph-by-paragraph reading mode, and speed reading features.                                        | ✅         |
 
-## Risale-i Nur Features
-
-| **Feature**                            | **Description**                                                                                     | **Status** |
-| -------------------------------------- | --------------------------------------------------------------------------------------------------- | ---------- |
-| **Built-in Risale Books (27 EPUBs)**   | 16 Turkish + 11 Russian parallel translations — auto-imported on first launch                       | ✅         |
-| **Russian Translations (11 EPUBs)**    | Parallel Russian EPUBs for side-by-side reading — generated from risale_extraction corpus           | ✅         |
-| **Külliyat Search**                    | Full-text search across all 15 Risale books simultaneously using Orama FTS                          | ✅         |
-| **Risale Lugat (Ottoman Dictionary)**  | 38,963 terms with FTS5/LIKE search, 78.5% frequency coverage, 70+ suffix stemming                  | ✅         |
-| **Lugat In-Text Highlighting**         | Green dotted underline + click popup for 4,724 frequent dictionary terms directly in book text      | ✅         |
-| **Quran Meal (10 languages)**          | Click any Arabic verse → instant translation in TR/EN/RU/BN/ES/FR/ID/SV/UR/ZH with surah:ayah ref  | ✅         |
-| **Meal AI Fallback**                   | If verse not in database → AI semantic translation + term breakdown (3-tier: DB→Lugat→AI)           | ✅         |
-| **AI Dictionary (Context-Aware)**      | DeepSeek/Gemini-powered definitions IN CONTEXT of the paragraph, with Quran/Hadith/Risale refs      | ✅         |
-| **AI Dictionary — Real Quotes (RAG)**  | 3,136 chunks from all 15 books searched in real-time → AI uses ACTUAL quotes, never hallucinates    | ✅         |
-| **AI Dictionary — Clickable Quotes**   | Click any quote → opens the book and searches for that exact passage (cross-book navigation)        | ✅         |
-| **AI Dictionary — Refresh Button**     | One-click regenerate AI response if output looks wrong                                               | ✅         |
-| **AI Passage Analysis**                | Select a sentence or paragraph → AI extracts all complex terms, translates, explains context        | ✅         |
-| **AI Dictionary — Universal Books**    | Works for ANY book (not just Risale). Explains through Islamic worldview. Muslim scholar persona.   | ✅         |
-| **AI Dictionary — Public Access**      | No login required when server has API keys. Users can override with their own keys in Settings.     | ✅         |
-| **AI Assistant with RAG**              | Ask questions about the Risale with context-aware AI (Reedy RAG — BookIndexer + hybrid FTS/vector)  | ✅         |
-| **Külliyat Deep Dive (Reedy)**         | AI agent searches across ALL indexed Risale books for thematic analysis                             | ✅         |
-| **Save AI Responses to Notes**         | One-click save AI definitions and Reedy responses as formatted book notes                           | ✅         |
-| **Hover Dictionary Tooltip**           | Hover any word → instant Lugat definition popup (desktop) — powered by IndexedDB                    | ✅         |
-| **Dictionary Language Selector**       | Switch definition language on-the-fly: 🇷🇺 Русский / 🇹🇷 Türkçe / 🇬🇧 English / 🇸🇦 العربية              | ✅         |
-| **Dictionary Provider Error Display**  | Failed providers show error reason instead of silently hiding — user knows what went wrong          | ✅         |
-| **Anlam Açık Modu**                    | Inline word definitions from the dictionary with green dashed underline + tooltip                   | ✅         |
-| **Haşiye (Verse Commentary)**          | Arabic verse popups with meal index — block-level + inline dotted underline, golden hover effect    | ✅         |
-| **Professional Typography**            | ITC Souvenir, Minion Pro, Nassim Arabic Pro, Kazimir Text — per-script font system, 53 fonts on R2 | ✅         |
-| **Parallel Translation Sync**          | Side-by-side reading of original + translation with shared scroll position                          | 🛠         |
-| **Quote Widget (Vecize)**              | 150 daily wisdom quotes from all Risale books                                                       | ✅         |
-| **Annotation Layers**                  | Multiple annotation layers: personal notes, haşiye, lugat, author notes — toggleable in reader      | ✅         |
-| **Mobile AI Access**                   | Dedicated 🤖 AI and 📓 Notebook buttons in mobile reader toolbar                                    | ✅         |
-| **Lugat Stemming v2**                  | 150+ Turkish suffixes + consonant mutation + token-based fallback — 95%+ lookup coverage            | ✅         |
-
 ## Planned Features
 
 <div align="left">🛠 Building</div>
@@ -105,20 +73,11 @@
 
 | **Feature**                     | **Description**                                                            | **Priority** |
 | ------------------------------- | -------------------------------------------------------------------------- | ------------ |
-| **Parallel Translation UI**     | Wire up parallelViewStore + useParallelSync to reader (11 RU EPUBs ready)  | 🛠           |
-| **CFI-Based Quote Navigation**  | Click quote → jump to exact page/paragraph (not just search)               | 🛠           |
-| **Küçük Kitaplar EPUBs**        | Generate 12 missing küçük kitap EPUBs (Sunuhat, İşarat, Tuluat, etc.)     | 🛠           |
-| **SorularlaRisale RAG**         | Scrape Q&A from sorularlarisale.com → load into Reedy RAG (1000+ answers)  | 🛠           |
-| **Meal Matching Improvement**   | Smarter Arabic scoring — better normalization, fewer wrong matches          | 🛠           |
-| **lugat.db for Tauri Desktop**  | Bundle + auto-extract lugat.db resource on Tauri (currently web-only)      | 🔄           |
-| **AI-Powered Summarization**    | Generate summaries of books or chapters using AI for quick insights.       | 🔄           |
-| **Advanced Reading Stats**      | Track reading time, pages read, and more for detailed insights.            | 🔄           |
+| **AI-Powered Summarization**    | Generate summaries of books or chapters using AI for quick insights.       | 🛠           |
+| **Advanced Reading Stats**      | Track reading time, pages read, and more for detailed insights.            | 🛠           |
 | **Audiobook Support**           | Extend functionality to play and manage audiobooks.                        | 🔄           |
+| **Handwriting Annotations**     | Add support for handwriting annotations using a pen on compatible devices. | 🔄           |
 | **In-Library Full-Text Search** | Search across your entire ebook library to find topics and quotes.         | 🔄           |
-| **EPUB Tools GUI**              | Visual editor for EPUB annotations, validator, CI/CD pipeline               | 🔄           |
-| **Mobile Apps (Store)**         | Google Play + App Store publication via Tauri                               | 🔄           |
-| **KOReader Sync**               | Bidirectional sync of annotations/progress with KOReader e-ink devices      | 🔄           |
-| **Community Features**          | Shared annotation layers, group reading, 120-day program, quizzes           | 🔄           |
 
 Stay tuned for continuous improvements and updates! Contributions and suggestions are always welcome—let's build the ultimate reading experience together. 😊
 
@@ -145,23 +104,29 @@ Stay tuned for continuous improvements and updates! Contributions and suggestion
 <div align="center">
   <a href="https://apps.apple.com/app/id6738622779">
     <img alt="Download on the App Store" src="https://developer.apple.com/assets/elements/badges/download-on-the-app-store.svg" style="height: 50px;" /></a>&nbsp;&nbsp;&nbsp;&nbsp;
-  <a href="https://play.google.com/store/apps/details?id=com.liskinlabs.risale-ai-studio">
+  <a href="https://play.google.com/store/apps/details?id=com.bilingify.readest">
     <img alt="Get it on Google Play" src="https://upload.wikimedia.org/wikipedia/commons/7/78/Google_Play_Store_badge_EN.svg" style="height: 50px;" /></a>
 </div>
 
 ### Platform-Specific Downloads
 
-- macOS / iOS / iPadOS : Search and install **Risale AI Studio** on the [App Store][link-appstore], _also_ available on TestFlight for beta test (send your Apple ID to <readestapp@gmail.com> to request access).
-- Windows / Linux / Android: Visit and download **Risale AI Studio** at [https://risale-ai-studio.com][link-website] or the [Releases on GitHub][link-gh-releases].
-- Linux users can also install [Risale AI Studio on Flathub][link-flathub].
-- Web: Visit and use **Risale AI Studio for Web** at [https://risale-ai-studio.vercel.app][link-vercel].
+- macOS / iOS / iPadOS : Search and install **Readest** on the [App Store][link-appstore], _also_ available on TestFlight for beta test (send your Apple ID to <readestapp@gmail.com> to request access).
+- Windows / Linux / Android: Visit and download **Readest** at [https://readest.com][link-website] or the [Releases on GitHub][link-gh-releases].
+- Linux users can also install [Readest on Flathub][link-flathub].
+- Web: Visit and use **Readest for Web** at [https://web.readest.com][link-web-readest].
+
+## Documentation
+
+Guides, tutorials, and FAQs for installing and using Readest live in the official documentation:
+
+📖 **[https://readest.com/docs][link-docs]**
 
 ## Requirements
 
 - **Node.js** and **pnpm** for Next.js development
 - **Rust** and **Cargo** for Tauri development
 
-For the best experience to build Risale AI Studio for yourself, use a recent version of Node.js and Rust. Refer to the [Tauri documentation](https://v2.tauri.app/start/prerequisites/) for details on setting up the development environment prerequisites on different platforms.
+For the best experience to build Readest for yourself, use a recent version of Node.js and Rust. Refer to the [Tauri documentation](https://v2.tauri.app/start/prerequisites/) for details on setting up the development environment prerequisites on different platforms.
 
 ```bash
 nvm install v24
@@ -172,13 +137,13 @@ rustup update
 
 ## Getting Started
 
-To get started with Risale AI Studio, follow these steps to clone and build the project.
+To get started with Readest, follow these steps to clone and build the project.
 
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/LiskinLabs/risale-ai-studio.git
-cd risale-ai-studio
+git clone https://github.com/readest/readest.git
+cd readest
 ```
 
 ### 2. Install Dependencies
@@ -188,7 +153,7 @@ cd risale-ai-studio
 git submodule update --init --recursive
 pnpm install
 # copy vendors dist libs to public directory
-pnpm --filter @LiskinLabs/risale-ai-studio-app setup-vendors
+pnpm --filter @readest/readest-app setup-vendors
 ```
 
 ### 3. Verify Dependencies Installation
@@ -249,7 +214,7 @@ pnpm tauri ios build
 ```
 
 Please refer to our release script if you experience any issues:
-https://github.com/LiskinLabs/risale-ai-studio/blob/main/.github/workflows/release.yml
+https://github.com/readest/readest/blob/main/.github/workflows/release.yml
 
 ### 6. Setup dev environment with Nix
 
@@ -268,7 +233,7 @@ Please check the [wiki][link-gh-wiki] of this project for more information on de
 
 ## Troubleshooting
 
-### 1. Risale AI Studio Won’t Launch on Windows (Missing Edge WebView2 Runtime)
+### 1. Readest Won’t Launch on Windows (Missing Edge WebView2 Runtime)
 
 **Symptom**
 
@@ -277,7 +242,7 @@ Please check the [wiki][link-gh-wiki] of this project for more information on de
 
 **Cause**
 
-- Microsoft Edge WebView2 Runtime is either missing, outdated, or improperly installed on your system. Risale AI Studio depends on WebView2 to render the interface on Windows.
+- Microsoft Edge WebView2 Runtime is either missing, outdated, or improperly installed on your system. Readest depends on WebView2 to render the interface on Windows.
 
 **How to Fix**
 
@@ -286,7 +251,7 @@ Please check the [wiki][link-gh-wiki] of this project for more information on de
 2. Install or Update WebView2
    - Download the WebView2 Runtime directly from Microsoft: [link](https://developer.microsoft.com/en-us/microsoft-edge/webview2?form=MA13LH).
    - If you prefer an offline installer, download the offline package and run it as an Administrator.
-3. Re-run Risale AI Studio
+3. Re-run Readest
    - After installing/updating WebView2, launch readest.exe again.
    - If you still encounter problems, reboot your PC and try again.
 
@@ -297,11 +262,11 @@ Please check the [wiki][link-gh-wiki] of this project for more information on de
 
 **Still Stuck?**
 
-- See Issue [LiskinLabs/risale-ai-studio#358](https://github.com/LiskinLabs/risale-ai-studio/issues/358) for further details, or head over to our [Discord][link-discord] server and open a support discussion with detailed logs of your environment and the steps you’ve taken.
+- See Issue [readest/readest#358](https://github.com/readest/readest/issues/358) for further details, or head over to our [Discord][link-discord] server and open a support discussion with detailed logs of your environment and the steps you’ve taken.
 
 ### 2. AppImage Launches but Only Shows a Taskbar Icon
 
-On some Arch Linux systems—especially those using Wayland—the Risale AI Studio AppImage may briefly show an icon in the taskbar and then exit without opening a window.
+On some Arch Linux systems—especially those using Wayland—the Readest AppImage may briefly show an icon in the taskbar and then exit without opening a window.
 
 You might see logs such as:
 
@@ -316,7 +281,7 @@ This behavior is usually caused by compatibility issues between the bundled AppI
 You can preload the system Wayland client library before launching the AppImage:
 
 ```
-LD_PRELOAD=/usr/lib/libwayland-client.so /path/to/Risale AI Studio.AppImage
+LD_PRELOAD=/usr/lib/libwayland-client.so /path/to/Readest.AppImage
 ```
 
 This workaround has been confirmed to resolve the issue on affected systems.
@@ -327,9 +292,9 @@ If you prefer a more reliable out-of-the-box experience on Arch Linux, consider 
 
 ## Contributors
 
-Risale AI Studio is open-source, and contributions are welcome! Feel free to open issues, suggest features, or submit pull requests. Please **review our [contributing guidelines](CONTRIBUTING.md) before you start**. We also welcome you to join our [Discord][link-discord] community for either support or contributing guidance.
+Readest is open-source, and contributions are welcome! Feel free to open issues, suggest features, or submit pull requests. Please **review our [contributing guidelines](CONTRIBUTING.md) before you start**. We also welcome you to join our [Discord][link-discord] community for either support or contributing guidance.
 
-<a href="https://github.com/LiskinLabs/risale-ai-studio/graphs/contributors">
+<a href="https://github.com/readest/readest/graphs/contributors">
   <p align="left">
     <img width="500" src="https://contrib.rocks/image?repo=readest/readest" alt="A table of avatars from the project's contributors" />
   </p>
@@ -337,19 +302,11 @@ Risale AI Studio is open-source, and contributions are welcome! Feel free to ope
 
 ## Support
 
-If Risale AI Studio has been useful to you, consider supporting its development. You can [become a sponsor on GitHub](https://github.com/sponsors/readest), [donate via Stripe](https://donate.stripe.com/4gMcN5aZdcE52kW3TFgjC01), or [donate with crypto](https://donate.risale-ai-studio.com). Your contribution helps us squash bugs faster, improve performance, and keep building great features.
-
-### Sponsors
-
-<p align="center">
-  <a title="Browser testing via TestMu AI" href="https://www.testmuai.com/?utm_medium=sponsor&utm_source=readest" target="_blank">
-    <img src="https://raw.githubusercontent.com/readest/readest/refs/heads/main/data/sponsors/testmu-ai-logo.png" style="vertical-align: middle;" width="250" />
-  </a>
-</p>
+If Readest has been useful to you, consider supporting its development at [donate.readest.com](https://donate.readest.com), where you'll find all available donation methods, including GitHub Sponsors, card payments, and crypto. Your contribution helps us fix bugs faster, improve performance, and keep building great features.
 
 ## License
 
-Risale AI Studio is free software: you can redistribute it and/or modify it under the terms of the [GNU Affero General Public License](https://www.gnu.org/licenses/agpl-3.0.html) as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. See the [LICENSE](LICENSE) file for details.
+Readest is free software: you can redistribute it and/or modify it under the terms of the [GNU Affero General Public License](https://www.gnu.org/licenses/agpl-3.0.html) as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. See the [LICENSE](LICENSE) file for details.
 
 The following libraries and frameworks are used in this software:
 
@@ -372,36 +329,36 @@ We would also like to thank the [Web Chinese Fonts Plan](https://chinese-font.ne
 
 ---
 
-<div align="center" style="color: gray;">Happy reading with Risale AI Studio!</div>
+<div align="center" style="color: gray;">Happy reading with Readest!</div>
 
-[badge-website]: https://img.shields.io/badge/website-risale-ai-studio.com-orange
-[badge-web-app]: https://img.shields.io/badge/read%20online-risale--ai--studio.vercel.app-orange
-[badge-license]: https://img.shields.io/github/license/readest/readest?color=teal
-[badge-release]: https://img.shields.io/github/release/readest/readest?color=green
+[badge-website]: https://img.shields.io/badge/website-readest.com-orange
+[badge-web-app]: https://img.shields.io/badge/read%20online-web.readest.com-orange
+[badge-license]: https://img.shields.io/badge/license-AGPL--3.0-teal
+[badge-release]: https://img.shields.io/github/v/release/readest/readest?color=green
 [badge-platforms]: https://img.shields.io/badge/platforms-macOS%2C%20Windows%2C%20Linux%2C%20Android%2C%20iOS%2C%20Web%2C%20PWA-green
 [badge-last-commit]: https://img.shields.io/github/last-commit/readest/readest?color=blue
 [badge-commit-activity]: https://img.shields.io/github/commit-activity/m/readest/readest?color=blue
 [badge-discord]: https://img.shields.io/discord/1314226120886976544?color=5865F2&label=discord&labelColor=black&logo=discord&logoColor=white&style=flat-square
 [badge-hellogithub]: https://abroad.hellogithub.com/v1/widgets/recommend.svg?rid=8a5b6ade2aee461a8bd94e59200682a7&claim_uid=eRLUbPOy2qZtDgw&theme=small
-[badge-donate]: https://donate.risale-ai-studio.com/badge.svg
+[badge-donate]: https://donate.readest.com/badge.svg
 [badge-deepwiki]: https://deepwiki.com/badge.svg
 [badge-reddit]: https://img.shields.io/reddit/subreddit-subscribers/readest?style=flat&logo=reddit&color=F37E41
 [badge-language-coverage]: https://img.shields.io/badge/coverage-53%25%20population%20🌍-green
-[link-donate]: https://donate.risale-ai-studio.com/?tickers=btc%2Ceth%2Csol%2Cusdc
+[link-donate]: https://donate.readest.com/?tickers=btc%2Ceth%2Csol%2Cusdc
 [link-appstore]: https://apps.apple.com/app/apple-store/id6738622779?pt=127463130&ct=github&mt=8
-[link-website]: https://risale-ai-studio.com?utm_source=github&utm_medium=referral&utm_campaign=readme
-[link-flathub]: https://flathub.org/en/apps/com.liskinlabs.risale-ai-studio
-[link-web-readest]: https://web.risale-ai-studio.com
-[link-vercel]: https://risale-ai-studio.vercel.app
-[link-gh-releases]: https://github.com/LiskinLabs/risale-ai-studio/releases
-[link-gh-commits]: https://github.com/LiskinLabs/risale-ai-studio/commits/main
-[link-gh-pulse]: https://github.com/LiskinLabs/risale-ai-studio/pulse
-[link-gh-wiki]: https://github.com/LiskinLabs/risale-ai-studio/wiki
+[link-website]: https://readest.com?utm_source=github&utm_medium=referral&utm_campaign=readme
+[link-flathub]: https://flathub.org/en/apps/com.bilingify.readest
+[link-web-readest]: https://web.readest.com
+[link-docs]: https://readest.com/docs
+[link-gh-releases]: https://github.com/readest/readest/releases
+[link-gh-commits]: https://github.com/readest/readest/commits/main
+[link-gh-pulse]: https://github.com/readest/readest/pulse
+[link-gh-wiki]: https://github.com/readest/readest/wiki
 [link-discord]: https://discord.gg/gntyVNk3BJ
-[link-parallel-read]: https://risale-ai-studio.com/#parallel-read
+[link-parallel-read]: https://readest.com/#parallel-read
 [link-koreader]: https://github.com/koreader/koreader
 [link-hellogithub]: https://hellogithub.com/repository/8a5b6ade2aee461a8bd94e59200682a7
 [link-deepwiki]: https://deepwiki.com/readest/readest
-[link-locales]: https://github.com/LiskinLabs/risale-ai-studio/tree/main/apps/readest-app/public/locales
-[link-kosync-wiki]: https://github.com/LiskinLabs/risale-ai-studio/wiki/Sync-with-Koreader-devices
+[link-locales]: https://github.com/readest/readest/tree/main/apps/readest-app/public/locales
+[link-kosync-wiki]: https://github.com/readest/readest/wiki/Sync-with-Koreader-devices
 [link-reddit]: https://reddit.com/r/readest/

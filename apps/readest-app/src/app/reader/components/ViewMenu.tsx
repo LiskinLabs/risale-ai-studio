@@ -25,11 +25,9 @@ import { eventDispatcher } from '@/utils/event';
 import { getMaxInlineSize } from '@/utils/config';
 import dayjs from 'dayjs';
 import { saveViewSettings } from '@/helpers/settings';
+import { tauriHandleToggleFullScreen } from '@/utils/window';
 import MenuItem from '@/components/MenuItem';
-import MenuSectionHeader from '@/components/MenuSectionHeader';
 import Menu from '@/components/Menu';
-import LayerToggle from '@/components/reader/LayerToggle';
-import type { AnnotationLayer } from '@/types/book';
 
 interface ViewMenuProps {
   bookKey: string;
@@ -48,8 +46,7 @@ const ViewMenu: React.FC<ViewMenuProps> = ({
   const { envConfig, appService } = useEnv();
   const { getConfig, getBookData } = useBookDataStore();
   const { setSettingsDialogOpen, setSettingsDialogBookKey } = useSettingsStore();
-  const { getView, getViewSettings, getViewState, getProgress, setViewSettings, recreateViewer } =
-    useReaderStore();
+  const { getView, getViewSettings, getViewState, getProgress, setViewSettings } = useReaderStore();
   const config = getConfig(bookKey)!;
   const bookData = getBookData(bookKey)!;
   const viewSettings = getViewSettings(bookKey)!;
@@ -68,28 +65,6 @@ const ViewMenu: React.FC<ViewMenuProps> = ({
     viewSettings!.invertImgColorInDark,
   );
   const [applyThemeToPDF, setApplyThemeToPDF] = useState(viewSettings!.applyThemeToPDF!);
-
-  // Annotation layers state
-  const [enabledLayers, setEnabledLayers] = useState<Set<AnnotationLayer>>(
-    new Set(viewSettings.enabledLayers || ['user', 'author', 'hasiye', 'lugat']),
-  );
-
-  const handleToggleLayer = (layer: AnnotationLayer) => {
-    const next = new Set(enabledLayers);
-    if (next.has(layer)) next.delete(layer);
-    else next.add(layer);
-    setEnabledLayers(next);
-
-    const nextLayers = Array.from(next);
-    viewSettings.enabledLayers = nextLayers;
-    setViewSettings(bookKey, viewSettings);
-    saveViewSettings(envConfig, bookKey, 'enabledLayers', nextLayers, true, false);
-
-    // Some transformers (like meaningMode or hasiye) modify the HTML content.
-    // To apply changes to the currently visible page, we must recreate the viewer
-    // so the transform pipeline runs again for all sections.
-    recreateViewer(envConfig, bookKey);
-  };
 
   const zoomIn = () => setZoomLevel((prev) => Math.min(prev + ZOOM_STEP, MAX_ZOOM_LEVEL));
   const zoomOut = () => setZoomLevel((prev) => Math.max(prev - ZOOM_STEP, MIN_ZOOM_LEVEL));
@@ -110,6 +85,11 @@ const ViewMenu: React.FC<ViewMenuProps> = ({
   const cycleThemeMode = () => {
     const nextMode = themeMode === 'auto' ? 'light' : themeMode === 'light' ? 'dark' : 'auto';
     setThemeMode(nextMode);
+  };
+
+  const handleFullScreen = () => {
+    tauriHandleToggleFullScreen();
+    setIsDropdownOpen?.(false);
   };
 
   const handleSync = () => {
@@ -311,16 +291,21 @@ const ViewMenu: React.FC<ViewMenuProps> = ({
               disabled={spreadMode === 'none'}
             />
           </>
+          <hr aria-hidden='true' className='border-base-300 my-1' />
         </>
       )}
 
-      <MenuSectionHeader label={_('Reading')} />
+      <MenuItem label={_('Font & Layout')} shortcut='Shift+F' onClick={openFontLayoutMenu} />
+
       <MenuItem
         label={_('Scrolled Mode')}
         shortcut='Shift+J'
         Icon={isScrolledMode ? MdCheck : undefined}
         onClick={toggleScrolledMode}
       />
+
+      <hr aria-hidden='true' className='border-base-300 my-1' />
+
       <MenuItem
         label={_('Paragraph Mode')}
         shortcut='Shift+P'
@@ -328,43 +313,16 @@ const ViewMenu: React.FC<ViewMenuProps> = ({
         onClick={toggleParagraphMode}
         disabled={bookData.isFixedLayout}
       />
+
       <MenuItem
         label={_('Speed Reading Mode')}
+        shortcut='Shift+V'
         onClick={handleStartRSVP}
         disabled={bookData.isFixedLayout}
       />
 
-      <MenuSectionHeader label={_('Appearance')} />
-      <MenuItem label={_('Font & Layout')} shortcut='Shift+F' onClick={openFontLayoutMenu} />
-      <MenuItem
-        label={
-          themeMode === 'dark'
-            ? _('Dark Mode')
-            : themeMode === 'light'
-              ? _('Light Mode')
-              : _('Auto Mode')
-        }
-        Icon={themeMode === 'dark' ? BiMoon : themeMode === 'light' ? BiSun : TbSunMoon}
-        onClick={cycleThemeMode}
-      />
-      {bookData.book?.format === 'PDF' && appService?.supportsCanvasContext2DFilter && (
-        <MenuItem
-          label={_('Apply Theme Colors to PDF')}
-          Icon={applyThemeToPDF ? MdCheck : undefined}
-          onClick={() => setApplyThemeToPDF(!applyThemeToPDF)}
-        />
-      )}
-      <MenuItem
-        label={_('Invert Image In Dark Mode')}
-        disabled={!isDarkMode}
-        Icon={invertImgColorInDark ? MdCheck : undefined}
-        onClick={() => setInvertImgColorInDark(!invertImgColorInDark)}
-      />
-      <div className='px-3 py-2'>
-        <LayerToggle enabled={enabledLayers} onToggle={handleToggleLayer} />
-      </div>
+      <hr aria-hidden='true' className='border-base-300 my-1' />
 
-      <MenuSectionHeader label={_('Sync')} />
       <MenuItem
         label={
           !user
@@ -393,7 +351,36 @@ const ViewMenu: React.FC<ViewMenuProps> = ({
         }
       />
 
-      <MenuSectionHeader label={_('Share')} />
+      <hr aria-hidden='true' className='border-base-300 my-1' />
+
+      {appService?.hasWindow && <MenuItem label={_('Fullscreen')} onClick={handleFullScreen} />}
+      <MenuItem
+        label={
+          themeMode === 'dark'
+            ? _('Dark Mode')
+            : themeMode === 'light'
+              ? _('Light Mode')
+              : _('Auto Mode')
+        }
+        Icon={themeMode === 'dark' ? BiMoon : themeMode === 'light' ? BiSun : TbSunMoon}
+        onClick={cycleThemeMode}
+      />
+      {bookData.book?.format === 'PDF' && appService?.supportsCanvasContext2DFilter && (
+        <MenuItem
+          label={_('Apply Theme Colors to PDF')}
+          Icon={applyThemeToPDF ? MdCheck : undefined}
+          onClick={() => setApplyThemeToPDF(!applyThemeToPDF)}
+        />
+      )}
+      <MenuItem
+        label={_('Invert Image In Dark Mode')}
+        disabled={!isDarkMode}
+        Icon={invertImgColorInDark ? MdCheck : undefined}
+        onClick={() => setInvertImgColorInDark(!invertImgColorInDark)}
+      />
+
+      <hr aria-hidden='true' className='border-base-300 my-1' />
+
       <MenuItem label={_('Share Book')} Icon={IoShareOutline} onClick={handleShare} />
     </Menu>
   );

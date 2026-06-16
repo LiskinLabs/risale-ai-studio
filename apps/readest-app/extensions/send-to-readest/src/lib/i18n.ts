@@ -5,7 +5,7 @@
  * as the main repo:
  *
  *     import { translate as _ } from '../lib/i18n';
- *     _('Send to Risale AI Studio')
+ *     _('Send to Readest')
  *     _('Sent — {count} images could not be fetched.', { count: 3 })
  *
  * Translation tables live at `src/locales/<locale>.json`. The English bundle is

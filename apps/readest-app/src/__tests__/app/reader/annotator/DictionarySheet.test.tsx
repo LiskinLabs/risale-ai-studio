@@ -230,7 +230,6 @@ const renderSheet = (
     <DictionarySheet
       word={props.word ?? 'hello'}
       lang={props.lang}
-      bookKey='test-book'
       onDismiss={props.onDismiss ?? (() => {})}
       onManage={props.onManage}
     />,
@@ -295,7 +294,7 @@ describe('DictionarySheet — concurrent lookup', () => {
     await screen.findByText('CMU American English spelling');
   });
 
-  it('shows empty-state message for providers that return empty', async () => {
+  it('hides cards from providers that return empty', async () => {
     providersForNextRender.push(
       buildRealStarDictProvider(),
       buildEmptyProvider('empty:1', 'Empty One'),
@@ -305,10 +304,9 @@ describe('DictionarySheet — concurrent lookup', () => {
 
     // The cmudict card eventually appears.
     await screen.findByText('CMU American English spelling');
-    // The two empty providers now render their labels with "No results found for" message
-    // so users know the dictionary was consulted but returned nothing.
-    expect(screen.getByText('Empty One')).toBeTruthy();
-    expect(screen.getByText('Empty Two')).toBeTruthy();
+    // The two empty providers never render a card.
+    expect(screen.queryByText('Empty One')).toBeNull();
+    expect(screen.queryByText('Empty Two')).toBeNull();
   });
 });
 

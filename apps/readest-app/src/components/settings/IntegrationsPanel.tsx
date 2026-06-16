@@ -24,7 +24,7 @@ import { navigateToLogin } from '@/utils/nav';
 import KOSyncForm from './integrations/KOSyncForm';
 import ReadwiseForm from './integrations/ReadwiseForm';
 import HardcoverForm from './integrations/HardcoverForm';
-import SendToRisaleAIStudioForm from './integrations/SendToReadestForm';
+import SendToReadestForm from './integrations/SendToReadestForm';
 import WebDAVForm from './integrations/WebDAVForm';
 import SubPageHeader from './SubPageHeader';
 import { SectionTitle, SettingLabel } from './primitives';
@@ -142,7 +142,7 @@ const IntegrationsPanel: React.FC = () => {
   if (subPage === 'send')
     return (
       <div className='my-4 w-full'>
-        <SendToRisaleAIStudioForm onBack={() => setSubPage(null)} />
+        <SendToReadestForm onBack={() => setSubPage(null)} />
       </div>
     );
 
@@ -169,7 +169,7 @@ const IntegrationsPanel: React.FC = () => {
       <div className='w-full px-4'>
         <h2 className='mb-1.5 text-lg font-semibold tracking-tight'>{_('Integrations')}</h2>
         <p className='text-base-content/70 text-sm leading-relaxed'>
-          {_('Connect Risale AI Studio to external services for sync, highlights, and catalogs.')}
+          {_('Connect Readest to external services for sync, highlights, and catalogs.')}
         </p>
       </div>
 
@@ -217,7 +217,7 @@ const IntegrationsPanel: React.FC = () => {
             />
             <IntegrationRow
               icon={RiSendPlaneLine}
-              title={_('Send to Risale AI Studio')}
+              title={_('Send to Readest')}
               status={_('Email books to your library')}
               onClick={() => setSubPage('send')}
             />

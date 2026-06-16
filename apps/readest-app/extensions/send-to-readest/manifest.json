@@ -30,8 +30,8 @@
   "content_scripts": [
     {
       "matches": [
-        "https://web.risale-ai-studio.com/*",
-        "https://*.risale-ai-studio.com/*",
+        "https://web.readest.com/*",
+        "https://*.readest.com/*",
         "http://localhost:3000/*"
       ],
       "js": ["content/auth-bridge.js"],

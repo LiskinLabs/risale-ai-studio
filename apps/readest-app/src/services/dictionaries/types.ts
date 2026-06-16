@@ -32,18 +32,6 @@ export interface DictionaryLookupContext {
   bg?: string;
   /** Theme foreground color (e.g. `#1a1a1a`). Forwarded into shadow-scoped CSS. */
   fg?: string;
-  /** Filter level for the lookup. */
-  dictionaryLevel?: number;
-  /** Preferred language for dictionary definitions (ISO 639-1, e.g. 'ru', 'tr', 'en').
-   *  Providers use this to select which language edition to query. */
-  dictionaryLanguage?: string;
-  /**
-   * Surrounding text context for AI-powered providers. When the user selects
-   * a word or passage, the annotator extracts a window of text before and
-   * after the selection so the AI can give a context-aware definition.
-   * Optional — providers that don't need context can ignore it.
-   */
-  context?: { before?: string; after?: string };
 }
 
 export type DictionaryLookupOutcome =
@@ -188,8 +176,6 @@ export interface DictionarySettings {
 export const BUILTIN_PROVIDER_IDS = {
   wiktionary: 'builtin:wiktionary',
   wikipedia: 'builtin:wikipedia',
-  risaleLugat: 'builtin:risale-lugat',
-  aiDictionary: 'builtin:ai-dictionary',
   /**
    * "Sentinel" id for the OS-native dictionary (macOS Dictionary.app via the
    * `dict://` URL scheme; iOS `UIReferenceLibraryViewController`; Android
@@ -215,9 +201,7 @@ export const BUILTIN_WEB_SEARCH_IDS = {
   google: 'web:builtin:google',
   urban: 'web:builtin:urban',
   merriamWebster: 'web:builtin:merriam-webster',
-  tdkSozluk: 'web:builtin:tdk-sozluk',
-  sesliSozluk: 'web:builtin:sesli-sozluk',
-  vikisozluk: 'web:builtin:vikisozluk',
+  goodreads: 'web:builtin:goodreads',
 } as const;
 
 export type BuiltinWebSearchId =

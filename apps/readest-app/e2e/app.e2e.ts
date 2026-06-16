@@ -101,7 +101,7 @@ describe('JavaScript Execution', () => {
     const title = await browser.execute(() => {
       return document.title;
     });
-    expect(title).toContain('Risale AI Studio');
+    expect(title).toContain('Readest');
   });
 
   it('should detect the app platform globals', async () => {

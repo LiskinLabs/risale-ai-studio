@@ -17,7 +17,6 @@ import {
   MdChevronLeft,
   MdChevronRight,
   MdClose,
-  MdLayers,
 } from 'react-icons/md';
 import { FiSearch } from 'react-icons/fi';
 import { getDirFromUILanguage } from '@/utils/rtl';
@@ -34,12 +33,10 @@ import LangPanel from './LangPanel';
 import MiscPanel from './MiscPanel';
 import AIPanel from './AIPanel';
 import TTSPanel from './TTSPanel';
-import LayersPanel from './LayersPanel';
 
 export type SettingsPanelType =
   | 'Font'
   | 'Layout'
-  | 'Layers'
   | 'Color'
   | 'Control'
   | 'TTS'
@@ -66,6 +63,7 @@ const SettingsDialog: React.FC<{ bookKey: string }> = ({ bookKey }) => {
   const [isRtl] = useState(() => getDirFromUILanguage() === 'rtl');
   const tabsRef = useRef<HTMLDivElement | null>(null);
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const [showAllTabLabels, setShowAllTabLabels] = useState(false);
   const [canScrollTabsForward, setCanScrollTabsForward] = useState(false);
   const {
     setFontPanelView,
@@ -99,11 +97,6 @@ const SettingsDialog: React.FC<{ bookKey: string }> = ({ bookKey }) => {
       label: _('Color'),
     },
     {
-      tab: 'Layers',
-      icon: MdLayers,
-      label: _('Layers'),
-    },
-    {
       tab: 'Control',
       icon: LiaHandPointerSolid,
       label: _('Behavior'),
@@ -114,19 +107,20 @@ const SettingsDialog: React.FC<{ bookKey: string }> = ({ bookKey }) => {
       label: _('Language'),
     },
     {
+      tab: 'Integrations',
+      icon: RiShareLine,
+      label: _('Integrations'),
+    },
+    {
       tab: 'AI',
       icon: PiRobot,
       label: _('AI Assistant'),
+      disabled: process.env.NODE_ENV === 'production',
     },
     {
       tab: 'TTS',
       icon: PiSpeakerHigh,
       label: _('TTS'),
-    },
-    {
-      tab: 'Integrations',
-      icon: RiShareLine,
-      label: _('Integrations'),
     },
     {
       tab: 'Custom',
@@ -180,7 +174,6 @@ const SettingsDialog: React.FC<{ bookKey: string }> = ({ bookKey }) => {
   >({
     Font: null,
     Layout: null,
-    Layers: null,
     Color: null,
     Control: null,
     TTS: null,
@@ -215,7 +208,6 @@ const SettingsDialog: React.FC<{ bookKey: string }> = ({ bookKey }) => {
       const panelMap: Record<string, SettingsPanelType> = {
         font: 'Font',
         layout: 'Layout',
-        layers: 'Layers',
         color: 'Color',
         control: 'Control',
         tts: 'TTS',
@@ -254,6 +246,30 @@ const SettingsDialog: React.FC<{ bookKey: string }> = ({ bookKey }) => {
     const container = tabsRef.current;
     if (!container) return;
 
+    const checkButtonWidths = () => {
+      const threshold = (container.clientWidth - 64) / tabConfig.filter((t) => !t.disabled).length;
+      const hideLabel = Array.from(container.querySelectorAll('button')).some((button) => {
+        const labelSpan = button.querySelector('span');
+        const labelText = labelSpan?.textContent || '';
+        const clone = button.cloneNode(true) as HTMLButtonElement;
+        clone.style.position = 'absolute';
+        clone.style.visibility = 'hidden';
+        clone.style.width = 'auto';
+        const cloneSpan = clone.querySelector('span');
+        if (cloneSpan) {
+          cloneSpan.classList.remove('hidden');
+          cloneSpan.textContent = labelText;
+        }
+        document.body.appendChild(clone);
+        const fullWidth = clone.scrollWidth;
+        document.body.removeChild(clone);
+        return fullWidth > threshold;
+      });
+      setShowAllTabLabels(!hideLabel);
+    };
+
+    // |scrollLeft| (Math.abs) handles RTL, where modern browsers use 0 → -max
+    // for scrolling toward the visual-leading end of the strip.
     const updateScrollState = () => {
       const overflow = container.scrollWidth - container.clientWidth;
       const scrolled = Math.abs(container.scrollLeft);
@@ -261,6 +277,7 @@ const SettingsDialog: React.FC<{ bookKey: string }> = ({ bookKey }) => {
     };
 
     const recompute = () => {
+      checkButtonWidths();
       updateScrollState();
     };
 
@@ -330,7 +347,11 @@ const SettingsDialog: React.FC<{ bookKey: string }> = ({ bookKey }) => {
     <Dialog
       isOpen={true}
       onClose={handleClose}
-      className='modal-open'
+      // Settings is the top-level modal: raise it above the full-screen RSVP
+      // speed-reader overlay (z-[10000]) so dictionary management opened from
+      // inside RSVP shows on top instead of behind it (#3235). !important beats
+      // the Dialog's hardcoded z-50.
+      className='modal-open !z-[10050]'
       bgClassName={bookKey ? 'sm:!bg-black/20' : 'sm:!bg-black/50'}
       boxClassName={clsx(
         'sm:min-w-[520px] overflow-hidden not-eink:bg-base-200',
@@ -378,12 +399,20 @@ const SettingsDialog: React.FC<{ bookKey: string }> = ({ bookKey }) => {
                     tabIndex={0}
                     title={label}
                     className={clsx(
-                      'btn btn-ghost text-base-content btn-sm h-9 min-h-0 w-9 p-0',
+                      'btn btn-ghost text-base-content btn-sm gap-1 px-2 max-[350px]:px-1',
                       activePanel === tab ? 'btn-active' : '',
                     )}
                     onClick={() => handleSetActivePanel(tab)}
                   >
-                    <Icon size={18} />
+                    <Icon className='mr-0' />
+                    <span
+                      className={clsx(
+                        window.innerWidth < 640 && 'hidden',
+                        !(showAllTabLabels || activePanel === tab) && 'hidden',
+                      )}
+                    >
+                      {label}
+                    </span>
                   </button>
                 ))}
             </div>
@@ -419,12 +448,6 @@ const SettingsDialog: React.FC<{ bookKey: string }> = ({ bookKey }) => {
           <LayoutPanel
             bookKey={bookKey}
             onRegisterReset={(fn) => registerResetFunction('Layout', fn)}
-          />
-        )}
-        {activePanel === 'Layers' && (
-          <LayersPanel
-            bookKey={bookKey}
-            onRegisterReset={(fn) => registerResetFunction('Layers', fn)}
           />
         )}
         {activePanel === 'Color' && (

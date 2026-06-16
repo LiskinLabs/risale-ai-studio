@@ -13,16 +13,6 @@ import {
   type GridListProps,
   type ListProps,
 } from 'react-virtuoso';
-import {
-  DndContext,
-  DragOverlay,
-  useSensor,
-  useSensors,
-  PointerSensor,
-  TouchSensor,
-  DragEndEvent,
-  DragStartEvent,
-} from '@dnd-kit/core';
 import { Book, BooksGroup, ReadingStatus } from '@/types/book';
 import {
   LibraryCoverFitType,
@@ -35,11 +25,11 @@ import { useThemeStore } from '@/store/themeStore';
 import { useAutoFocus } from '@/hooks/useAutoFocus';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useLibraryStore } from '@/store/libraryStore';
-import { useLibrarySearch } from '@/hooks/useLibrarySearch';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useResponsiveSize } from '@/hooks/useResponsiveSize';
 import { navigateToLibrary, navigateToReader, showReaderWindow } from '@/utils/nav';
 import {
+  createBookFilter,
   createBookGroups,
   createBookSorter,
   createGroupSorter,
@@ -60,7 +50,6 @@ import { MIMETYPES, EXTS } from '@/libs/document';
 import { makeSafeFilename } from '@/utils/misc';
 
 import { useSpatialNavigation } from '../hooks/useSpatialNavigation';
-import BookCover from '@/components/BookCover';
 import Alert from '@/components/Alert';
 import Spinner from '@/components/Spinner';
 import ModalPortal from '@/components/ModalPortal';
@@ -99,81 +88,13 @@ interface BookshelfProps {
 type BookshelfListContext = {
   autoColumns: boolean;
   fixedColumns: number;
-  featuredBooks?: Book[];
-  isRootGroup?: boolean;
 };
 
 const BOOKSHELF_GRID_CLASSES =
-  'bookshelf-items transform-wrapper grid gap-x-5 gap-y-6 px-4 sm:px-6 ' +
-  'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6';
+  'bookshelf-items transform-wrapper grid gap-x-4 px-4 sm:gap-x-0 sm:px-2 ' +
+  'grid-cols-3 sm:grid-cols-4 md:grid-cols-6 xl:grid-cols-8 2xl:grid-cols-12';
 
 const BOOKSHELF_LIST_CLASSES = 'bookshelf-items transform-wrapper flex flex-col';
-
-const FeaturedBooksHeader = React.forwardRef<HTMLDivElement, { context?: BookshelfListContext }>(
-  ({ context }, ref) => {
-    if (!context?.isRootGroup || !context?.featuredBooks || context.featuredBooks.length === 0) {
-      return null;
-    }
-    return (
-      <div
-        ref={ref}
-        className='w-full px-4 sm:px-6 mb-8 mt-2'
-        style={{ containerType: 'inline-size' }}
-      >
-        <h2 className='text-lg font-serif font-bold text-base-content drop-shadow-sm mb-4 uppercase tracking-wider'>
-          Продолжить чтение
-        </h2>
-        <div className='flex gap-5 overflow-x-auto pb-4 snap-x' style={{ scrollbarWidth: 'none' }}>
-          {context.featuredBooks.map((book) => (
-            <div
-              key={book.hash}
-              className={clsx(
-                'snap-start flex-shrink-0',
-                context?.autoColumns
-                  ? 'w-[calc((100cqi-1*20px)/2)] sm:w-[calc((100cqi-2*20px)/3)] md:w-[calc((100cqi-3*20px)/4)] lg:w-[calc((100cqi-4*20px)/5)] xl:w-[calc((100cqi-5*20px)/6)]'
-                  : '',
-              )}
-              style={
-                !context?.autoColumns && context?.fixedColumns
-                  ? {
-                      width: `calc((100cqi - ${context.fixedColumns - 1} * 20px) / ${context.fixedColumns})`,
-                    }
-                  : {}
-              }
-            >
-              <div
-                className='w-full aspect-[28/41] rounded-md cursor-pointer'
-                onClick={() => {
-                  if (typeof window !== 'undefined') {
-                    window.location.href = `/reader?id=${book.hash}`;
-                  }
-                }}
-              >
-                <BookCover book={book} mode='grid' coverFit='crop' is3d={true} />
-              </div>
-              {book.progress && Array.isArray(book.progress) && book.progress[0] > 0 && (
-                <div className='mt-2 h-1 bg-black/10 dark:bg-white/10 rounded-full overflow-hidden'>
-                  <div
-                    className='h-full bg-primary'
-                    style={{
-                      width: `${Math.round((book.progress[0] / Math.max(book.progress[1], 1)) * 100)}%`,
-                    }}
-                  ></div>
-                </div>
-              )}
-              {book.progress && typeof book.progress === 'number' && book.progress > 0 && (
-                <div className='mt-2 h-1 bg-black/10 dark:bg-white/10 rounded-full overflow-hidden'>
-                  <div className='h-full bg-primary' style={{ width: `${book.progress}%` }}></div>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  },
-);
-FeaturedBooksHeader.displayName = 'FeaturedBooksHeader';
 
 const BookshelfGridList: GridComponents<BookshelfListContext>['List'] = React.forwardRef<
   HTMLDivElement,
@@ -207,7 +128,6 @@ BookshelfLinearList.displayName = 'BookshelfLinearList';
 
 const GRID_VIRTUOSO_COMPONENTS: GridComponents<BookshelfListContext> = {
   List: BookshelfGridList,
-  Header: FeaturedBooksHeader as React.ComponentType<{ context: BookshelfListContext }>,
   Footer: () => <div style={{ height: 34 }} />,
 };
 const LIST_VIRTUOSO_COMPONENTS: Components = {
@@ -273,8 +193,6 @@ const Bookshelf: React.FC<BookshelfProps> = ({
 
   const uiLanguage = localStorage?.getItem('i18nextLng') || '';
 
-  const searchResults = useLibrarySearch(queryTerm || '');
-
   const updateUrlParams = useCallback(
     (updates: Record<string, string | null>) => {
       const params = new URLSearchParams(searchParams?.toString());
@@ -304,15 +222,11 @@ const Bookshelf: React.FC<BookshelfProps> = ({
   );
 
   const filteredBooks = useMemo(() => {
-    return queryTerm ? searchResults : libraryBooks;
-  }, [libraryBooks, queryTerm, searchResults]);
+    const bookFilter = createBookFilter(queryTerm);
+    return queryTerm ? libraryBooks.filter((book) => bookFilter(book)) : libraryBooks;
+  }, [libraryBooks, queryTerm]);
 
   const currentBookshelfItems = useMemo(() => {
-    // If we have a search query, show results globally, ignoring current group/folder
-    if (queryTerm) {
-      return filteredBooks;
-    }
-
     if (groupBy === LibraryGroupByType.Group) {
       // Use existing generateBookshelfItems for group mode
       const groupName = getGroupName(groupId) || '';
@@ -472,9 +386,7 @@ const Bookshelf: React.FC<BookshelfProps> = ({
   // which already includes nested sub-folder books.
   const getBooksToDelete = () => {
     const wanted = new Set(bookIdsToDelete);
-    return filteredBooks.filter(
-      (book) => wanted.has(book.hash) && !book.deletedAt && !book.builtin,
-    );
+    return filteredBooks.filter((book) => wanted.has(book.hash) && !book.deletedAt);
   };
 
   const confirmDelete = async () => {
@@ -707,59 +619,6 @@ const Bookshelf: React.FC<BookshelfProps> = ({
     };
   }, [user, _]);
 
-  // Drag and Drop State
-  const [activeDragBook, setActiveDragBook] = useState<Book | null>(null);
-
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: {
-        distance: 8, // Require 8px movement before dragging starts
-      },
-    }),
-    useSensor(TouchSensor, {
-      activationConstraint: {
-        delay: 250,
-        tolerance: 5,
-      },
-    }),
-  );
-
-  const handleDragStart = useCallback(
-    (event: DragStartEvent) => {
-      const { active } = event;
-      const book = filteredBooks.find((b) => b.hash === active.id);
-      if (book) setActiveDragBook(book);
-    },
-    [filteredBooks],
-  );
-
-  const handleDragEnd = useCallback(
-    async (event: DragEndEvent) => {
-      setActiveDragBook(null);
-      const { active, over } = event;
-      if (!over || active.id === over.id) return;
-
-      const book = filteredBooks.find((b) => b.hash === active.id);
-      if (!book) return;
-
-      const targetGroupName = over.id as string;
-      const currentGroupName = book.groupName || '';
-
-      // If dropping into the exact same folder, do nothing
-      if (currentGroupName === targetGroupName) return;
-
-      // Update book's groupName
-      const updatedBook = { ...book, groupName: targetGroupName, updatedAt: Date.now() };
-      await updateBooks(envConfig, [updatedBook]);
-      eventDispatcher.dispatch('toast', {
-        type: 'success',
-        message: _('Book moved to ' + targetGroupName),
-        timeout: 2000,
-      });
-    },
-    [filteredBooks, updateBooks, envConfig, _],
-  );
-
   // OverlayScrollbars + Virtuoso integration: Virtuoso manages its own
   // scroller; OverlayScrollbars wraps it for overlay scrollbar rendering.
   const osRootRef = useRef<HTMLDivElement>(null);
@@ -802,22 +661,12 @@ const Bookshelf: React.FC<BookshelfProps> = ({
   // last book; list mode doesn't have an import tile.
   const gridTotalCount = hasItems ? sortedBookshelfItems.length + 1 : 0;
 
-  const featuredBooks = useMemo(() => {
-    // Only featured books that have some progress or were recently opened
-    return libraryBooks
-      .filter((b) => b.progress && b.progress[0] > 0)
-      .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
-      .slice(0, 8);
-  }, [libraryBooks]);
-
   const listContext = useMemo<BookshelfListContext>(
     () => ({
       autoColumns: settings.libraryAutoColumns,
       fixedColumns: settings.libraryColumns,
-      featuredBooks,
-      isRootGroup: !groupId && !queryTerm,
     }),
-    [settings.libraryAutoColumns, settings.libraryColumns, featuredBooks, groupId, queryTerm],
+    [settings.libraryAutoColumns, settings.libraryColumns],
   );
 
   const renderBookshelfItem = useCallback(
@@ -910,143 +759,120 @@ const Bookshelf: React.FC<BookshelfProps> = ({
   );
 
   return (
-    <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-      <div
-        ref={autofocusRef}
-        tabIndex={-1}
-        role='main'
-        aria-label={_('Bookshelf')}
-        className='bookshelf min-h-0 flex-grow focus:outline-none'
-      >
-        <div ref={osRootRef} data-overlayscrollbars-initialize='' className='h-full'>
-          {hasItems && isGridMode && (
-            <VirtuosoGrid<unknown, BookshelfListContext>
-              overscan={200}
-              totalCount={gridTotalCount}
-              components={GRID_VIRTUOSO_COMPONENTS}
-              context={listContext}
-              computeItemKey={computeItemKey}
-              itemContent={renderBookshelfItem}
-              scrollerRef={handleScrollerRef}
-            />
-          )}
-          {hasItems && !isGridMode && (
-            <Virtuoso
-              overscan={200}
-              totalCount={sortedBookshelfItems.length}
-              components={LIST_VIRTUOSO_COMPONENTS}
-              computeItemKey={computeItemKey}
-              itemContent={renderBookshelfItem}
-              scrollerRef={handleScrollerRef}
-            />
-          )}
-        </div>
-        {loading && (
-          <div className='fixed inset-0 z-50 flex items-center justify-center'>
-            <Spinner loading />
-          </div>
-        )}
-        {!showGroupingModal && isSelectMode && showSelectModeActions && (
-          <SelectModeActions
-            selectedBooks={selectedBooks}
-            safeAreaBottom={safeAreaInsets?.bottom || 0}
-            sendEnabled={
-              !!(
-                appService &&
-                !appService.isLinuxApp &&
-                !appService.isWindowsApp &&
-                (appService.isDesktopApp || appService.isMobileApp)
-              )
-            }
-            onOpen={openSelectedBooks}
-            onGroup={groupSelectedBooks}
-            onDetails={openBookDetails}
-            onStatus={showStatusSelection}
-            onSend={sendSelectedBook}
-            onDelete={deleteSelectedBooks}
-            onCancel={() => handleSetSelectMode(false)}
+    <div
+      ref={autofocusRef}
+      tabIndex={-1}
+      role='main'
+      aria-label={_('Bookshelf')}
+      className='bookshelf min-h-0 flex-grow focus:outline-none'
+    >
+      <div ref={osRootRef} data-overlayscrollbars-initialize='' className='h-full'>
+        {hasItems && isGridMode && (
+          <VirtuosoGrid<unknown, BookshelfListContext>
+            overscan={200}
+            totalCount={gridTotalCount}
+            components={GRID_VIRTUOSO_COMPONENTS}
+            context={listContext}
+            computeItemKey={computeItemKey}
+            itemContent={renderBookshelfItem}
+            scrollerRef={handleScrollerRef}
           />
         )}
-        {showGroupingModal && selectedBooks.length > 0 && (
-          <ModalPortal>
-            <GroupingModal
-              libraryBooks={libraryBooks}
-              selectedBooks={selectedBooks}
-              parentGroupName={getGroupName(groupId) || ''}
-              onCancel={() => {
-                setShowGroupingModal(false);
-                setShowSelectModeActions(true);
-              }}
-              onConfirm={() => {
-                setShowGroupingModal(false);
-                handleSetSelectMode(false);
-              }}
-            />
-          </ModalPortal>
+        {hasItems && !isGridMode && (
+          <Virtuoso
+            overscan={200}
+            totalCount={sortedBookshelfItems.length}
+            components={LIST_VIRTUOSO_COMPONENTS}
+            computeItemKey={computeItemKey}
+            itemContent={renderBookshelfItem}
+            scrollerRef={handleScrollerRef}
+          />
         )}
-        {showDeleteAlert && (
-          <div
-            className={clsx('delete-alert fixed bottom-0 left-0 right-0 z-50 flex justify-center')}
-            style={{
-              paddingBottom: `${(safeAreaInsets?.bottom || 0) + 16}px`,
-            }}
-          >
-            <Alert
-              title={_('Confirm Deletion')}
-              message={_('Are you sure to delete {{count}} selected book(s)?', {
-                count: getBooksToDelete().length,
-              })}
-              onCancel={() => {
-                abortDeletionRef.current = true;
-                setShowDeleteAlert(false);
-                setShowSelectModeActions(true);
-              }}
-              onConfirm={confirmDelete}
-            />
-          </div>
-        )}
-        {showStatusAlert && (
-          <SetStatusAlert
-            selectedCount={getSelectedBooks().length}
-            safeAreaBottom={safeAreaInsets?.bottom || 0}
+      </div>
+      {loading && (
+        <div className='fixed inset-0 z-50 flex items-center justify-center'>
+          <Spinner loading />
+        </div>
+      )}
+      {!showGroupingModal && isSelectMode && showSelectModeActions && (
+        <SelectModeActions
+          selectedBooks={selectedBooks}
+          safeAreaBottom={safeAreaInsets?.bottom || 0}
+          // Native send targets: iOS, Android, macOS — route through
+          // tauri-plugin-sharekit (UIActivityViewController /
+          // Intent.ACTION_SEND / NSSharingServicePicker). Linux has no
+          // system share sheet, Windows WebView2 share UI is disabled
+          // upstream (issue #4343 — deadlocks the main thread), and web
+          // browsers don't expose a real "send file to <app>" sheet, so
+          // the button is hidden on those platforms.
+          sendEnabled={
+            !!appService &&
+            (appService.isIOSApp || appService.isAndroidApp || appService.isMacOSApp)
+          }
+          onOpen={openSelectedBooks}
+          onGroup={groupSelectedBooks}
+          onDetails={openBookDetails}
+          onStatus={showStatusSelection}
+          onSend={sendSelectedBook}
+          onDelete={deleteSelectedBooks}
+          onCancel={() => handleSetSelectMode(false)}
+        />
+      )}
+      {showGroupingModal && selectedBooks.length > 0 && (
+        <ModalPortal>
+          <GroupingModal
+            libraryBooks={libraryBooks}
+            selectedBooks={selectedBooks}
+            parentGroupName={getGroupName(groupId) || ''}
             onCancel={() => {
-              setShowStatusAlert(false);
+              setShowGroupingModal(false);
               setShowSelectModeActions(true);
             }}
-            onUpdateStatus={updateBooksStatus}
+            onConfirm={() => {
+              setShowGroupingModal(false);
+              handleSetSelectMode(false);
+            }}
           />
-        )}
-        <ShareBookDialog
-          isOpen={!!shareDialogBook}
-          book={shareDialogBook}
-          onClose={() => setShareDialogBook(null)}
+        </ModalPortal>
+      )}
+      {showDeleteAlert && (
+        <div
+          className={clsx('delete-alert fixed bottom-0 left-0 right-0 z-50 flex justify-center')}
+          style={{
+            paddingBottom: `${(safeAreaInsets?.bottom || 0) + 16}px`,
+          }}
+        >
+          <Alert
+            title={_('Confirm Deletion')}
+            message={_('Are you sure to delete {{count}} selected book(s)?', {
+              count: getBooksToDelete().length,
+            })}
+            onCancel={() => {
+              abortDeletionRef.current = true;
+              setShowDeleteAlert(false);
+              setShowSelectModeActions(true);
+            }}
+            onConfirm={confirmDelete}
+          />
+        </div>
+      )}
+      {showStatusAlert && (
+        <SetStatusAlert
+          selectedCount={getSelectedBooks().length}
+          safeAreaBottom={safeAreaInsets?.bottom || 0}
+          onCancel={() => {
+            setShowStatusAlert(false);
+            setShowSelectModeActions(true);
+          }}
+          onUpdateStatus={updateBooksStatus}
         />
-        <DragOverlay zIndex={9999} dropAnimation={null}>
-          {activeDragBook ? (
-            <div className='scale-105 shadow-2xl opacity-90 rotate-2 w-32 aspect-[28/41]'>
-              <BookshelfItem
-                item={activeDragBook}
-                mode={'grid'}
-                coverFit={coverFit as LibraryCoverFitType}
-                isSelectMode={false}
-                itemSelected={false}
-                setLoading={() => {}}
-                toggleSelection={() => {}}
-                handleGroupBooks={() => {}}
-                handleBookUpload={async () => false}
-                handleBookDownload={async () => false}
-                handleBookDelete={async () => false}
-                handleSetSelectMode={() => {}}
-                handleShowDetailsBook={() => {}}
-                handleLibraryNavigation={() => {}}
-                handleUpdateReadingStatus={() => {}}
-                transferProgress={null}
-              />
-            </div>
-          ) : null}
-        </DragOverlay>
-      </div>
-    </DndContext>
+      )}
+      <ShareBookDialog
+        isOpen={!!shareDialogBook}
+        book={shareDialogBook}
+        onClose={() => setShareDialogBook(null)}
+      />
+    </div>
   );
 };
 

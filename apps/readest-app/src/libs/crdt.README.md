@@ -81,7 +81,7 @@ CRDT properties verified by tests:
 
 ## When you change this module
 
-This is one of the few places in Risale AI Studio where correctness is
+This is one of the few places in Readest where correctness is
 non-negotiable. Bugs cause silent data loss across devices.
 
 - Never weaken any of the four CRDT properties.

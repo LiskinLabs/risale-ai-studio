@@ -26,6 +26,8 @@ import {
   SettingsSwitchRow,
 } from './primitives';
 import CustomDictionaries from './CustomDictionaries';
+import WordWisePanel from './WordWisePanel';
+import { PiTranslate } from 'react-icons/pi';
 
 const LangPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset }) => {
   const _ = useTranslation();
@@ -49,19 +51,20 @@ const LangPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset 
   const [convertChineseVariant, setConvertChineseVariant] = useState(
     viewSettings.convertChineseVariant,
   );
-  const [dictionaryLevel, setDictionaryLevel] = useState(viewSettings.dictionaryLevel);
-  const [dictionaryLanguage, setDictionaryLanguage] = useState(
-    viewSettings.dictionaryLanguage || 'en',
-  );
   const [showCustomDictionaries, setShowCustomDictionaries] = useState(false);
+  const [showWordWise, setShowWordWise] = useState(false);
 
-  // Android Back / Esc: when the Manage Dictionaries sub-page is open,
-  // intercept and step back to the language list instead of letting
-  // <Dialog>'s listener close the whole Settings dialog. See the matching
-  // comment in FontPanel.tsx for the LIFO-dispatch reasoning.
+  // Android Back / Esc: when a sub-page is open, intercept and step back to the
+  // language list instead of letting <Dialog>'s listener close the whole
+  // Settings dialog. See the matching comment in FontPanel.tsx for the
+  // LIFO-dispatch reasoning.
   useKeyDownActions({
     enabled: showCustomDictionaries,
     onCancel: () => setShowCustomDictionaries(false),
+  });
+  useKeyDownActions({
+    enabled: showWordWise,
+    onCancel: () => setShowWordWise(false),
   });
 
   // Deep-link: callers (e.g. the dictionary popup's manage icon) can set
@@ -87,8 +90,6 @@ const LangPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset 
       showTranslateSource: setShowTranslateSource,
       ttsReadAloudText: setTtsReadAloudText,
       replaceQuotationMarks: setReplaceQuotationMarks,
-      dictionaryLevel: setDictionaryLevel,
-      dictionaryLanguage: setDictionaryLanguage,
     });
   };
 
@@ -239,44 +240,6 @@ const LangPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [replaceQuotationMarks]);
 
-  useEffect(() => {
-    if (dictionaryLevel === viewSettings.dictionaryLevel) return;
-    saveViewSettings(envConfig, bookKey, 'dictionaryLevel', dictionaryLevel, false, false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dictionaryLevel]);
-
-  useEffect(() => {
-    if (dictionaryLanguage === (viewSettings.dictionaryLanguage || 'en')) return;
-    saveViewSettings(envConfig, bookKey, 'dictionaryLanguage', dictionaryLanguage, false, false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dictionaryLevel]);
-
-  const getDictionaryLevelOptions = () => {
-    return [
-      { value: '0', label: _('Beginner (A1-A2)') },
-      { value: '1', label: _('Intermediate (B1-B2)') },
-      { value: '2', label: _('Advanced (C1-C2)') },
-      { value: '3', label: _('All Terms') },
-    ];
-  };
-
-  const handleSelectDictionaryLevel = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    setDictionaryLevel(parseInt(event.target.value, 10));
-  };
-
-  const getDictionaryLanguageOptions = () => {
-    return [
-      { value: 'en', label: _('English') },
-      { value: 'tr', label: _('Turkish') },
-      { value: 'ru', label: _('Russian') },
-      { value: 'ar', label: _('Arabic') },
-    ];
-  };
-
-  const handleSelectDictionaryLanguage = (event: React.ChangeEvent<HTMLSelectElement>) => {
-    setDictionaryLanguage(event.target.value);
-  };
-
   const getConvertModeOptions: () => { value: ConvertChineseVariant; label: string }[] = () => {
     return [
       { value: 'none', label: _('No Conversion') },
@@ -325,6 +288,10 @@ const LangPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset 
     );
   }
 
+  if (showWordWise) {
+    return <WordWisePanel bookKey={bookKey} onBack={() => setShowWordWise(false)} />;
+  }
+
   return (
     <div className={clsx('my-4 w-full space-y-6')}>
       <BoxedList title={_('Language')} data-setting-id='settings.language.interfaceLanguage'>
@@ -348,22 +315,19 @@ const LangPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset 
           onClick={() => setShowCustomDictionaries(true)}
           className='h-14'
         />
-        <SettingsRow label={_('Sözlük Seviyesi (Word Level)')}>
-          <SettingsSelect
-            value={dictionaryLevel.toString()}
-            onChange={handleSelectDictionaryLevel}
-            ariaLabel={_('Word Level')}
-            options={getDictionaryLevelOptions()}
-          />
-        </SettingsRow>
-        <SettingsRow label={_('Dictionary Language')}>
-          <SettingsSelect
-            value={dictionaryLanguage}
-            onChange={handleSelectDictionaryLanguage}
-            ariaLabel={_('Dictionary Language')}
-            options={getDictionaryLanguageOptions()}
-          />
-        </SettingsRow>
+      </BoxedList>
+
+      <BoxedList
+        title={_('Word Wise')}
+        data-setting-id='settings.language.wordwise'
+        cardClassName='overflow-hidden'
+      >
+        <NavigationRow
+          icon={PiTranslate}
+          title={_('Word Wise')}
+          status={_('Show a short native-language hint above difficult words.')}
+          onClick={() => setShowWordWise(true)}
+        />
       </BoxedList>
 
       <BoxedList title={_('Translation')} data-setting-id='settings.language.translationEnabled'>

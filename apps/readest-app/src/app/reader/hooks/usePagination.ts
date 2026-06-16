@@ -1,4 +1,3 @@
-import React from 'react';
 import { useEffect } from 'react';
 import { useEnv } from '@/context/EnvContext';
 import { FoliateView } from '@/types/view';

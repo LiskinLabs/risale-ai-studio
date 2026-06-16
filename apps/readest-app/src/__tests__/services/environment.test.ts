@@ -2,8 +2,8 @@ import { describe, test, expect, beforeEach, vi } from 'vitest';
 
 // ── Mocks for constants ──────────────────────────────────────────
 vi.mock('@/services/constants', () => ({
-  READEST_WEB_BASE_URL: 'https://web.risale-ai-studio.com',
-  READEST_NODE_BASE_URL: 'https://node.risale-ai-studio.com',
+  READEST_WEB_BASE_URL: 'https://web.readest.com',
+  READEST_NODE_BASE_URL: 'https://node.readest.com',
 }));
 
 // We need to reset modules between tests to pick up env var changes,
@@ -132,7 +132,7 @@ describe('environment', () => {
     test('falls back to READEST_WEB_BASE_URL when env var not set', async () => {
       delete env['NEXT_PUBLIC_API_BASE_URL'];
       const { getBaseUrl } = await import('@/services/environment');
-      expect(getBaseUrl()).toBe('https://web.risale-ai-studio.com');
+      expect(getBaseUrl()).toBe('https://web.readest.com');
     });
   });
 
@@ -147,7 +147,7 @@ describe('environment', () => {
     test('falls back to READEST_NODE_BASE_URL when env var not set', async () => {
       delete env['NEXT_PUBLIC_NODE_BASE_URL'];
       const { getNodeBaseUrl } = await import('@/services/environment');
-      expect(getNodeBaseUrl()).toBe('https://node.risale-ai-studio.com');
+      expect(getNodeBaseUrl()).toBe('https://node.readest.com');
     });
   });
 
@@ -219,7 +219,7 @@ describe('environment', () => {
       env['NEXT_PUBLIC_APP_PLATFORM'] = 'web';
       delete env['NEXT_PUBLIC_API_BASE_URL'];
       const { getAPIBaseUrl } = await import('@/services/environment');
-      expect(getAPIBaseUrl()).toBe('https://web.risale-ai-studio.com/api');
+      expect(getAPIBaseUrl()).toBe('https://web.readest.com/api');
     });
 
     test('returns full URL for tauri platform even in development', async () => {
@@ -227,7 +227,7 @@ describe('environment', () => {
       env['NEXT_PUBLIC_APP_PLATFORM'] = 'tauri';
       delete env['NEXT_PUBLIC_API_BASE_URL'];
       const { getAPIBaseUrl } = await import('@/services/environment');
-      expect(getAPIBaseUrl()).toBe('https://web.risale-ai-studio.com/api');
+      expect(getAPIBaseUrl()).toBe('https://web.readest.com/api');
     });
   });
 
@@ -245,7 +245,7 @@ describe('environment', () => {
       env['NEXT_PUBLIC_APP_PLATFORM'] = 'web';
       delete env['NEXT_PUBLIC_NODE_BASE_URL'];
       const { getNodeAPIBaseUrl } = await import('@/services/environment');
-      expect(getNodeAPIBaseUrl()).toBe('https://node.risale-ai-studio.com/api');
+      expect(getNodeAPIBaseUrl()).toBe('https://node.readest.com/api');
     });
 
     test('returns full node URL for tauri platform even in development', async () => {
@@ -253,7 +253,7 @@ describe('environment', () => {
       env['NEXT_PUBLIC_APP_PLATFORM'] = 'tauri';
       delete env['NEXT_PUBLIC_NODE_BASE_URL'];
       const { getNodeAPIBaseUrl } = await import('@/services/environment');
-      expect(getNodeAPIBaseUrl()).toBe('https://node.risale-ai-studio.com/api');
+      expect(getNodeAPIBaseUrl()).toBe('https://node.readest.com/api');
     });
   });
 

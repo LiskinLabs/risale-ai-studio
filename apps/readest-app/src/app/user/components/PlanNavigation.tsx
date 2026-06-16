@@ -1,4 +1,3 @@
-import React from 'react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { UserPlan } from '@/types/quota';
 import { PlanDetails } from '../utils/plan';

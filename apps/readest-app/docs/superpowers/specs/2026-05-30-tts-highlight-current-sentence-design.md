@@ -2,7 +2,7 @@
 
 **Date:** 2026-05-30
 **Status:** Approved (pending spec review)
-**Issue:** [#4085](https://github.com/LiskinLabs/risale-ai-studio/issues/4085)
+**Issue:** [#4085](https://github.com/readest/readest/issues/4085)
 
 ## Problem
 
@@ -14,7 +14,7 @@ impairments — exactly the audience that benefits most from "react with a singl
 key" capture.
 
 Today the only workarounds are to stop TTS and select manually, or to take notes
-outside Risale AI Studio (which then aren't synced/exported with the book).
+outside Readest (which then aren't synced/exported with the book).
 
 ## Goal
 

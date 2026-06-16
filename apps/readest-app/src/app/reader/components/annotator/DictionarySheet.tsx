@@ -1,11 +1,8 @@
 'use client';
 
-import React, { useCallback } from 'react';
+import React from 'react';
 
 import Dialog from '@/components/Dialog';
-import { useEnv } from '@/context/EnvContext';
-import { useReaderStore } from '@/store/readerStore';
-import { saveViewSettings } from '@/helpers/settings';
 import {
   useDictionaryResults,
   DictionaryResultsHeader,
@@ -15,38 +12,12 @@ import {
 interface DictionarySheetProps {
   word: string;
   lang?: string;
-  bookKey: string;
-  context?: { before?: string; after?: string };
   onDismiss: () => void;
   onManage?: () => void;
 }
 
-const DictionarySheet: React.FC<DictionarySheetProps> = ({
-  word,
-  lang,
-  bookKey,
-  context,
-  onDismiss,
-  onManage,
-}) => {
-  const { envConfig } = useEnv();
-  const { getViewSettings, setViewSettings } = useReaderStore();
-  const state = useDictionaryResults({ word, lang, bookKey, context });
-
-  const handleLanguageChange = useCallback(
-    (newLang: string) => {
-      const viewSettings = getViewSettings(bookKey);
-      if (!viewSettings) return;
-      viewSettings.dictionaryLanguage = newLang;
-      setViewSettings(bookKey, viewSettings);
-      saveViewSettings(envConfig, bookKey, 'dictionaryLanguage', newLang, true, false);
-    },
-    [bookKey, envConfig, getViewSettings, setViewSettings],
-  );
-
-  const viewSettings = getViewSettings(bookKey);
-  const currentLang = viewSettings?.dictionaryLanguage || 'ru';
-
+const DictionarySheet: React.FC<DictionarySheetProps> = ({ word, lang, onDismiss, onManage }) => {
+  const state = useDictionaryResults({ word, lang });
   return (
     <Dialog
       isOpen
@@ -54,13 +25,14 @@ const DictionarySheet: React.FC<DictionarySheetProps> = ({
       dismissible
       header={
         <DictionaryResultsHeader
-          headerClassName='-mt-4'
+          // The -mt-4 compensates for Dialog's drag handle, which is `sm:hidden`
+          // (shown only below sm). Mirror that breakpoint so on sm+ (no handle)
+          // the header isn't pulled up into the top edge.
+          headerClassName='-mt-4 sm:mt-0'
           currentWord={state.currentWord}
           canGoBack={state.canGoBack}
           goBack={state.goBack}
           onManage={onManage}
-          dictionaryLanguage={currentLang}
-          onLanguageChange={handleLanguageChange}
         />
       }
       contentClassName='!px-0 !mt-0'

@@ -10,7 +10,7 @@
 import type { ClipProgress, ClipRequest, StatusRequest, StatusResponse } from '../lib/messages';
 import { localizeDom, translate as _ } from '../lib/i18n';
 
-const LOGIN_URL = 'https://web.risale-ai-studio.com/';
+const LOGIN_URL = 'https://web.readest.com/';
 
 localizeDom();
 
@@ -126,7 +126,7 @@ async function init(): Promise<void> {
   pageUrl.textContent = tab.url;
 
   const status = await chrome.runtime.sendMessage<StatusRequest, StatusResponse>({
-    type: 'send-to-risale-ai-studio:status',
+    type: 'send-to-readest:status',
   });
 
   if (!status.signedIn) {
@@ -147,7 +147,7 @@ sendBtn.addEventListener('click', async () => {
   if (currentTabId === null) return;
   sendBtn.disabled = true;
   showProgress(_('Starting…'));
-  const request: ClipRequest = { type: 'send-to-risale-ai-studio:clip', tabId: currentTabId };
+  const request: ClipRequest = { type: 'send-to-readest:clip', tabId: currentTabId };
   await chrome.runtime.sendMessage(request).catch(() => undefined);
 });
 
@@ -158,7 +158,7 @@ openReadestBtn.addEventListener('click', () => {
 chrome.runtime.onMessage.addListener((message: unknown): void => {
   if (!message || typeof message !== 'object') return;
   const m = message as { type?: string; progress?: ClipProgress };
-  if (m.type === 'send-to-risale-ai-studio:progress' && m.progress) {
+  if (m.type === 'send-to-readest:progress' && m.progress) {
     render(m.progress);
   }
 });

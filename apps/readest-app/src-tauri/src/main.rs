@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    risale_ai_studio_lib::run();
+    readestlib::run();
 }

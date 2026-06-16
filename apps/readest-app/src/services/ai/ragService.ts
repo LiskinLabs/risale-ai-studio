@@ -1,22 +1,3 @@
-/**
- * @deprecated Legacy RAG service — **use `@/services/reedy/` instead.**
- *
- * This module is the original Vercel AI SDK-based RAG implementation. It is
- * superseded by the Reedy runtime (`services/reedy/retrieval/BookIndexer.ts`
- * + `BookRetriever.ts`) which provides:
- *  - Proper status-machine indexing (idle → indexing → indexed/failed/empty)
- *  - Tantivy FTS + vector cosine hybrid search with RRF fusion
- *  - Per-book mutex, AbortSignal, embedding timeout → FTS-only fallback
- *  - ReedyTool contracts with Zod schemas and permission envelopes
- *
- * **Migration plan:**
- *  - `LegacyIdbBackend.ts` still uses this module — migrate to `reedy/` when ready.
- *  - `AIAssistant.tsx` imports via barrel — switch to Reedy runtime for new features.
- *  - DO NOT add new features here. Forward-port to `reedy/` instead.
- *
- * When all callers have moved, delete this file and remove the export from `index.ts`.
- */
-
 import { embed, embedMany } from 'ai';
 import { aiStore } from './storage/aiStore';
 import { chunkSection, extractTextFromDocument } from './utils/chunker';
@@ -155,11 +136,7 @@ export async function indexBook(
         ? settings.ollamaEmbeddingModel
         : settings.provider === 'openrouter'
           ? settings.openrouterEmbeddingModel || 'text-embedding-3-small'
-          : settings.provider === 'gemini'
-            ? settings.geminiEmbeddingModel || 'text-embedding-004'
-            : settings.provider === 'deepseek'
-              ? settings.deepseekEmbeddingModel || 'text-embedding-3-small'
-              : settings.aiGatewayEmbeddingModel || 'text-embedding-3-small';
+          : settings.aiGatewayEmbeddingModel || 'text-embedding-3-small';
     aiLogger.embedding.start(embeddingModelName, allChunks.length);
 
     const texts = allChunks.map((c) => c.text);

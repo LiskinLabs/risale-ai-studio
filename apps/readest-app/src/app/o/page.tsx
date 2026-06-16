@@ -25,7 +25,7 @@ const detectPlatform = (): Platform => {
   return 'desktop';
 };
 
-const ANDROID_PACKAGE = 'com.liskinlabs.risale-ai-studio';
+const ANDROID_PACKAGE = 'com.bilingify.readest';
 const FALLBACK_TIMEOUT_MS = 1500;
 const DESKTOP_FALLBACK_DELAY_MS = 1000;
 
@@ -129,11 +129,7 @@ const OpenAnnotationLanding = () => {
                 'The annotation link is missing required information. The original link may have been truncated.',
               )}
             </p>
-            <a
-              href='https://risale-ai-studio.com'
-              className='btn btn-ghost btn-block mt-6'
-              rel='noopener'
-            >
+            <a href='https://readest.com' className='btn btn-ghost btn-block mt-6' rel='noopener'>
               {_('Go to Readest')}
             </a>
           </div>
@@ -150,7 +146,7 @@ const OpenAnnotationLanding = () => {
     <main className='bg-base-200 flex min-h-dvh flex-col items-center justify-center p-4 sm:p-8'>
       <Card>
         <BrandHeader
-          title={_('Open in Risale AI Studio')}
+          title={_('Open in Readest')}
           subtitle={
             showManualOpen
               ? _("If Readest didn't open automatically, choose an option below:")
@@ -181,7 +177,7 @@ const OpenAnnotationLanding = () => {
         >
           <a href={appUrl} className='btn btn-primary btn-block' rel='noopener'>
             <IoBookOutline className='h-5 w-5' aria-hidden='true' />
-            {_('Open in Risale AI Studio app')}
+            {_('Open in Readest app')}
           </a>
           <a href={webReaderHref} className='btn btn-ghost btn-block' rel='noopener'>
             <IoOpenOutline className='h-5 w-5' aria-hidden='true' />
