@@ -529,7 +529,7 @@ pub fn run() {
             let win_builder = {
                 let mut builder = win_builder
                     .decorations(false)
-                    .visible(false)
+                    .visible(true)
                     .shadow(true)
                     .title("Readest");
 
