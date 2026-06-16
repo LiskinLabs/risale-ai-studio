@@ -51,10 +51,7 @@ async function loadPassages(): Promise<RisalePassage[]> {
  * Simple case-insensitive substring match — fast enough for 3136 chunks.
  * Returns up to 5 best matches, preferring shorter passages (more focused).
  */
-async function searchRisalePassages(
-  term: string,
-  maxResults = 5,
-): Promise<RisalePassage[]> {
+async function searchRisalePassages(term: string, maxResults = 5): Promise<RisalePassage[]> {
   const passages = await loadPassages();
   if (!passages.length) return [];
 

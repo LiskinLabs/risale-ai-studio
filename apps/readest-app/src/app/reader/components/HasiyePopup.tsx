@@ -80,16 +80,23 @@ const HasiyePopup: React.FC<HasiyePopupProps> = ({ bookKey }) => {
         try {
           const db = await appService.openDatabase('lugat', 'lugat.db', 'Data');
           if (db) {
-            const words = decodedText.split(/[\s،۔؛,]+/).filter((w: string) => w.trim().length >= 3).slice(0, 5);
+            const words = decodedText
+              .split(/[\s،۔؛,]+/)
+              .filter((w: string) => w.trim().length >= 3)
+              .slice(0, 5);
             const ph = words.map(() => '?').join(',');
             const rows = await db.select<{ term: string; definition: string }>(
-              `SELECT term, definition FROM lugat WHERE arabic IN (${ph}) LIMIT 3`, words);
+              `SELECT term, definition FROM lugat WHERE arabic IN (${ph}) LIMIT 3`,
+              words,
+            );
             if (rows?.length) {
               translation = rows.map((r) => `(${r.term}) ${r.definition}`).join(' | ');
               setIsAiLoading(false);
             }
           }
-        } catch { /* */ }
+        } catch {
+          /* */
+        }
       }
 
       // Tier 3: AI
@@ -112,7 +119,9 @@ const HasiyePopup: React.FC<HasiyePopupProps> = ({ bookKey }) => {
         const rect = gridCell.getBoundingClientRect();
         const w = Math.min(POPUP_WIDTH, window.innerWidth - 20);
         setTrianglePosition(getPosition(element, rect, 10, false));
-        setPopupPosition(getPopupPosition(getPosition(element, rect, 10, false), rect, w, bodyHeight, 10));
+        setPopupPosition(
+          getPopupPosition(getPosition(element, rect, 10, false), rect, w, bodyHeight, 10),
+        );
       }
 
       setShowPopup(true);
@@ -190,14 +199,14 @@ const HasiyePopup: React.FC<HasiyePopupProps> = ({ bookKey }) => {
 
             {isAiTranslation && (
               <div className='mb-2 text-[9px] leading-tight opacity-30'>
-                {_('AI semantic translation. For detailed analysis, select text and open Dictionary.')}
+                {_(
+                  'AI semantic translation. For detailed analysis, select text and open Dictionary.',
+                )}
               </div>
             )}
 
             {mealResult && (
-              <div className='text-sm leading-relaxed whitespace-pre-wrap'>
-                {mealResult.meal}
-              </div>
+              <div className='text-sm leading-relaxed whitespace-pre-wrap'>{mealResult.meal}</div>
             )}
           </div>
         </div>
@@ -231,10 +240,16 @@ async function fetchAiTranslation(arabicText: string, targetLang: string): Promi
   if (!data.json) throw new Error('Empty response');
 
   let parsed: Record<string, unknown> | null = null;
-  try { parsed = JSON.parse(data.json) as Record<string, unknown>; } catch { return data.json; }
+  try {
+    parsed = JSON.parse(data.json) as Record<string, unknown>;
+  } catch {
+    return data.json;
+  }
 
   const parts: string[] = [];
-  const translation = (parsed['approximateTranslation'] || parsed['translation']) as string | undefined;
+  const translation = (parsed['approximateTranslation'] || parsed['translation']) as
+    | string
+    | undefined;
   const terms = parsed['complexTerms'] as Array<Record<string, string>> | undefined;
 
   if (translation) parts.push(translation);

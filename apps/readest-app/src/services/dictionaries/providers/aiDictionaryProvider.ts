@@ -127,7 +127,10 @@ export const aiDictionaryProvider: DictionaryProvider = {
       }
       try {
         const definition = await fetchSimpleDefinition(word, targetLang, signal);
-        simpleDefinitionCache.set(cacheKey(word, targetLang), { definition, timestamp: Date.now() });
+        simpleDefinitionCache.set(cacheKey(word, targetLang), {
+          definition,
+          timestamp: Date.now(),
+        });
         renderSimpleDefinition(container, word, definition, targetLang);
         return { ok: true, headword: word, sourceLabel: 'AI Sözlük' };
       } catch (err) {
@@ -140,7 +143,11 @@ export const aiDictionaryProvider: DictionaryProvider = {
     if (mode === 'passage') {
       try {
         const result = await fetchPassageAnalysis(
-          word, targetLang, sourceLang, signal, ctx.context,
+          word,
+          targetLang,
+          sourceLang,
+          signal,
+          ctx.context,
         );
         renderPassageAnalysis(container, word, result, targetLang);
         return {
@@ -153,7 +160,11 @@ export const aiDictionaryProvider: DictionaryProvider = {
         const firstWord = word.trim().split(/\s+/)[0] || word;
         try {
           const result = await fetchFullDefinition(
-            firstWord, targetLang, sourceLang, signal, ctx.context,
+            firstWord,
+            targetLang,
+            sourceLang,
+            signal,
+            ctx.context,
           );
           renderFullDefinition(container, firstWord, result, targetLang);
           return { ok: true, headword: firstWord, sourceLabel: 'Risale AI Sözlük (ilk kelime)' };
@@ -165,15 +176,16 @@ export const aiDictionaryProvider: DictionaryProvider = {
 
     // ── Word mode: contextual definition ──────────────────────────────
     try {
-      const result = await fetchFullDefinition(
-        word, targetLang, sourceLang, signal, ctx.context,
-      );
+      const result = await fetchFullDefinition(word, targetLang, sourceLang, signal, ctx.context);
       renderFullDefinition(container, word, result, targetLang);
       return { ok: true, headword: word, sourceLabel: 'Risale AI Sözlük' };
     } catch (_err) {
       try {
         const definition = await fetchSimpleDefinition(word, targetLang, signal);
-        simpleDefinitionCache.set(cacheKey(word, targetLang), { definition, timestamp: Date.now() });
+        simpleDefinitionCache.set(cacheKey(word, targetLang), {
+          definition,
+          timestamp: Date.now(),
+        });
         renderSimpleDefinition(container, word, definition, targetLang);
         return { ok: true, headword: word, sourceLabel: 'AI Sözlük (basit)' };
       } catch {
@@ -343,9 +355,7 @@ function parseJsonResponse(jsonStr: string, fallbackWord: string): FullDefinitio
             citation: (p['citation'] as string) || undefined,
             quote: (p['quote'] as string) || undefined,
             quoteTranslation:
-              (p['quoteTranslation'] as string) ||
-              (p['quote_translation'] as string) ||
-              undefined,
+              (p['quoteTranslation'] as string) || (p['quote_translation'] as string) || undefined,
             context: (p['context'] as string) || '',
             relevance: (p['relevance'] as string) || '',
           }))

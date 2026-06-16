@@ -31,25 +31,22 @@ export const lugatTransformer: Transformer = {
     let result = ctx.content;
 
     // Push all matching terms into a single pass — find text between > and <
-    result = result.replace(
-      />([^<]+)</g,
-      (_full: string, text: string) => {
-        let wrapped = text;
-        // Match whole words (Turkish/Latin, 3+ chars)
-        const wordRe = /\b([a-zçğıöşüâîûA-ZÇĞİÖŞÜÂÎÛ'][a-zçğıöşüâîûA-ZÇĞİÖŞÜÂÎÛ']{2,})\b/g;
+    result = result.replace(/>([^<]+)</g, (_full: string, text: string) => {
+      let wrapped = text;
+      // Match whole words (Turkish/Latin, 3+ chars)
+      const wordRe = /\b([a-zçğıöşüâîûA-ZÇĞİÖŞÜÂÎÛ'][a-zçğıöşüâîûA-ZÇĞİÖŞÜÂÎÛ']{2,})\b/g;
 
-        const alreadyDone = new Set<string>();
+      const alreadyDone = new Set<string>();
 
-        wrapped = wrapped.replace(wordRe, (match: string) => {
-          const lower = match.toLowerCase();
-          if (alreadyDone.has(lower) || !terms.has(lower)) return match;
-          alreadyDone.add(lower);
-          return `<span class="lugat-term" ${MARKER}="${lower}">${match}</span>`;
-        });
+      wrapped = wrapped.replace(wordRe, (match: string) => {
+        const lower = match.toLowerCase();
+        if (alreadyDone.has(lower) || !terms.has(lower)) return match;
+        alreadyDone.add(lower);
+        return `<span class="lugat-term" ${MARKER}="${lower}">${match}</span>`;
+      });
 
-        return `>${wrapped}<`;
-      },
-    );
+      return `>${wrapped}<`;
+    });
 
     return result;
   },

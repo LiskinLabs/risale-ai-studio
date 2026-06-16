@@ -59,9 +59,7 @@ export function useQuoteNavigation() {
       // If the target book is already open in the reader, just trigger a
       // text search in-place — don't navigate away.
       const allViewStates = readerStore.getState().viewStates;
-      const alreadyOpenKey = Object.keys(allViewStates).find(
-        (k) => k.startsWith(book.hash),
-      );
+      const alreadyOpenKey = Object.keys(allViewStates).find((k) => k.startsWith(book.hash));
       if (alreadyOpenKey) {
         eventDispatcher.dispatch('search-term', { term: searchQuery, bookKey: alreadyOpenKey });
         return;
