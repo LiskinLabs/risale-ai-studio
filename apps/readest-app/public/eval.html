@@ -1,0 +1,12 @@
+<!DOCTYPE html>
+<html>
+<body>
+  <div id="out">Redirecting...</div>
+  <script>
+    setTimeout(() => {
+        let books = Array.from(document.querySelectorAll('h3')).map(e => e.textContent);
+        document.body.innerHTML = '<h1>' + books.join('<br>') + '</h1>';
+    }, 100);
+  </script>
+</body>
+</html>

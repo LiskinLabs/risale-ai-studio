@@ -17,7 +17,7 @@ export const availableTransformers: Transformer[] = [
   punctuationTransformer,
   footnoteTransformer,
   hasiyeTransformer,
-  lugatTransformer,
+  // lugatTransformer, // Froze old lugat to prevent conflicts
   meaningModeTransformer,
   uiEffectsTransformer,
   languageTransformer,

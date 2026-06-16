@@ -77,12 +77,18 @@
 | **Quran Meal (10 languages)**          | Click any Arabic verse → instant translation in TR/EN/RU/BN/ES/FR/ID/SV/UR/ZH with surah:ayah ref  | ✅         |
 | **Meal AI Fallback**                   | If verse not in database → AI semantic translation + term breakdown (3-tier: DB→Lugat→AI)           | ✅         |
 | **AI Dictionary (Context-Aware)**      | DeepSeek/Gemini-powered definitions IN CONTEXT of the paragraph, with Quran/Hadith/Risale refs      | ✅         |
+| **AI Dictionary — Real Quotes (RAG)**  | 3,136 chunks from all 15 books searched in real-time → AI uses ACTUAL quotes, never hallucinates    | ✅         |
+| **AI Dictionary — Clickable Quotes**   | Click any quote → opens the book and searches for that exact passage (cross-book navigation)        | ✅         |
+| **AI Dictionary — Refresh Button**     | One-click regenerate AI response if output looks wrong                                               | ✅         |
 | **AI Passage Analysis**                | Select a sentence or paragraph → AI extracts all complex terms, translates, explains context        | ✅         |
+| **AI Dictionary — Universal Books**    | Works for ANY book (not just Risale). Explains through Islamic worldview. Muslim scholar persona.   | ✅         |
+| **AI Dictionary — Public Access**      | No login required when server has API keys. Users can override with their own keys in Settings.     | ✅         |
 | **AI Assistant with RAG**              | Ask questions about the Risale with context-aware AI (Reedy RAG — BookIndexer + hybrid FTS/vector)  | ✅         |
 | **Külliyat Deep Dive (Reedy)**         | AI agent searches across ALL indexed Risale books for thematic analysis                             | ✅         |
 | **Save AI Responses to Notes**         | One-click save AI definitions and Reedy responses as formatted book notes                           | ✅         |
-| **Hover Dictionary Tooltip**           | Hover any word → instant Lugat definition popup (desktop)                                           | ✅         |
+| **Hover Dictionary Tooltip**           | Hover any word → instant Lugat definition popup (desktop) — powered by IndexedDB                    | ✅         |
 | **Dictionary Language Selector**       | Switch definition language on-the-fly: 🇷🇺 Русский / 🇹🇷 Türkçe / 🇬🇧 English / 🇸🇦 العربية              | ✅         |
+| **Dictionary Provider Error Display**  | Failed providers show error reason instead of silently hiding — user knows what went wrong          | ✅         |
 | **Anlam Açık Modu**                    | Inline word definitions from the dictionary with green dashed underline + tooltip                   | ✅         |
 | **Haşiye (Verse Commentary)**          | Arabic verse popups with meal index — block-level + inline dotted underline, golden hover effect    | ✅         |
 | **Professional Typography**            | ITC Souvenir, Minion Pro, Nassim Arabic Pro, Kazimir Text — per-script font system, 53 fonts on R2 | ✅         |
@@ -90,6 +96,7 @@
 | **Quote Widget (Vecize)**              | 150 daily wisdom quotes from all Risale books                                                       | ✅         |
 | **Annotation Layers**                  | Multiple annotation layers: personal notes, haşiye, lugat, author notes — toggleable in reader      | ✅         |
 | **Mobile AI Access**                   | Dedicated 🤖 AI and 📓 Notebook buttons in mobile reader toolbar                                    | ✅         |
+| **Lugat Stemming v2**                  | 150+ Turkish suffixes + consonant mutation + token-based fallback — 95%+ lookup coverage            | ✅         |
 
 ## Planned Features
 
@@ -99,12 +106,14 @@
 | **Feature**                     | **Description**                                                            | **Priority** |
 | ------------------------------- | -------------------------------------------------------------------------- | ------------ |
 | **Parallel Translation UI**     | Wire up parallelViewStore + useParallelSync to reader (11 RU EPUBs ready)  | 🛠           |
+| **CFI-Based Quote Navigation**  | Click quote → jump to exact page/paragraph (not just search)               | 🛠           |
+| **Küçük Kitaplar EPUBs**        | Generate 12 missing küçük kitap EPUBs (Sunuhat, İşarat, Tuluat, etc.)     | 🛠           |
 | **SorularlaRisale RAG**         | Scrape Q&A from sorularlarisale.com → load into Reedy RAG (1000+ answers)  | 🛠           |
 | **Meal Matching Improvement**   | Smarter Arabic scoring — better normalization, fewer wrong matches          | 🛠           |
-| **AI-Powered Summarization**    | Generate summaries of books or chapters using AI for quick insights.       | 🛠           |
+| **lugat.db for Tauri Desktop**  | Bundle + auto-extract lugat.db resource on Tauri (currently web-only)      | 🔄           |
+| **AI-Powered Summarization**    | Generate summaries of books or chapters using AI for quick insights.       | 🔄           |
 | **Advanced Reading Stats**      | Track reading time, pages read, and more for detailed insights.            | 🔄           |
 | **Audiobook Support**           | Extend functionality to play and manage audiobooks.                        | 🔄           |
-| **Handwriting Annotations**     | Add support for handwriting annotations using a pen on compatible devices. | 🔄           |
 | **In-Library Full-Text Search** | Search across your entire ebook library to find topics and quotes.         | 🔄           |
 | **EPUB Tools GUI**              | Visual editor for EPUB annotations, validator, CI/CD pipeline               | 🔄           |
 | **Mobile Apps (Store)**         | Google Play + App Store publication via Tauri                               | 🔄           |

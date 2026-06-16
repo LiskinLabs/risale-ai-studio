@@ -21,32 +21,32 @@ MANIFEST_FILE = Path("C:/Users/silvestr.liskin/Desktop/risale-ai-studio/apps/rea
 
 # Full list of 26 books (Küçük Kitaplar split)
 BOOKS = [
-    {"dir": "01_Külliyat_Temel_Eserler/sozler/by_heading", "filename": "sozler.epub", "title": "Sözler", "author": "Bediüzzaman Said Nursi", "group": "risale"},
-    {"dir": "01_Külliyat_Temel_Eserler/mektubat/by_heading", "filename": "mektubat.epub", "title": "Mektubat", "author": "Bediüzzaman Said Nursi", "group": "risale"},
-    {"dir": "01_Külliyat_Temel_Eserler/lemalar/by_heading", "filename": "lemalar.epub", "title": "Lem'alar", "author": "Bediüzzaman Said Nursi", "group": "risale"},
-    {"dir": "01_Külliyat_Temel_Eserler/sualar/by_heading", "filename": "sualar.epub", "title": "Şuâlar", "author": "Bediüzzaman Said Nursi", "group": "risale"},
-    {"dir": "01_Külliyat_Temel_Eserler/tarihce-i-hayat/by_heading", "filename": "tarihce-i-hayat.epub", "title": "Tarihçe-i Hayat", "author": "Bediüzzaman Said Nursi", "group": "risale"},
-    {"dir": "01_Külliyat_Temel_Eserler/mesnevi-i-nuriye/by_heading", "filename": "mesnevi-i-nuriye.epub", "title": "Mesnevî-i Nuriye", "author": "Bediüzzaman Said Nursi", "group": "risale"},
-    {"dir": "01_Külliyat_Temel_Eserler/isaratul-icaz/by_heading", "filename": "isaratul-icaz.epub", "title": "İşaratü'l-İ'caz", "author": "Bediüzzaman Said Nursi", "group": "risale"},
-    {"dir": "01_Külliyat_Temel_Eserler/sikke-i-tasdik-i-gaybi/by_heading", "filename": "sikke-i-tasdik-i-gaybi.epub", "title": "Sikke-i Tasdik-i Gaybî", "author": "Bediüzzaman Said Nursi", "group": "risale"},
-    {"dir": "01_Külliyat_Temel_Eserler/barla-lahikasi/by_heading", "filename": "barla-lahikasi.epub", "title": "Barla Lâhikası", "author": "Bediüzzaman Said Nursi", "group": "risale"},
-    {"dir": "01_Külliyat_Temel_Eserler/kastamonu-lahikasi/by_heading", "filename": "kastamonu-lahikasi.epub", "title": "Kastamonu Lâhikası", "author": "Bediüzzaman Said Nursi", "group": "risale"},
-    {"dir": "01_Külliyat_Temel_Eserler/emirdag-lahikasi-1/by_heading", "filename": "emirdag-lahikasi-1.epub", "title": "Emirdağ Lâhikası 1", "author": "Bediüzzaman Said Nursi", "group": "risale"},
-    {"dir": "01_Külliyat_Temel_Eserler/emirdag-lahikasi-2/by_heading", "filename": "emirdag-lahikasi-2.epub", "title": "Emirdağ Lâhikası 2", "author": "Bediüzzaman Said Nursi", "group": "risale"},
-    {"dir": "01_Külliyat_Temel_Eserler/asa-yi-musa/by_heading", "filename": "asa-yi-musa.epub", "title": "Asâ-yı Musa", "author": "Bediüzzaman Said Nursi", "group": "risale"},
-    {"dir": "01_Külliyat_Temel_Eserler/muhakemat/by_heading", "filename": "muhakemat.epub", "title": "Muhakemat", "author": "Bediüzzaman Said Nursi", "group": "risale"},
-    {"dir": "03_Eski_Said_Dönemi/sunuhat/by_heading", "filename": "sunuhat.epub", "title": "Sünûhat", "author": "Bediüzzaman Said Nursi", "group": "kucuk"},
-    {"dir": "03_Eski_Said_Dönemi/isarat/by_heading", "filename": "isarat.epub", "title": "İşârât", "author": "Bediüzzaman Said Nursi", "group": "kucuk"},
-    {"dir": "03_Eski_Said_Dönemi/tuluat/by_heading", "filename": "tuluat.epub", "title": "Tulûât", "author": "Bediüzzaman Said Nursi", "group": "kucuk"},
-    {"dir": "03_Eski_Said_Dönemi/nurun-ilk-kapisi/by_heading", "filename": "nurun-ilk-kapisi.epub", "title": "Nur'un İlk Kapısı", "author": "Bediüzzaman Said Nursi", "group": "kucuk"},
-    {"dir": "02_Küçük_Kitaplar_ve_Rehberler/nur-cesmesi/by_heading", "filename": "nur-cesmesi.epub", "title": "Nur Çeşmesi", "author": "Bediüzzaman Said Nursi", "group": "kucuk"},
-    {"dir": "03_Eski_Said_Dönemi/divan-i-harb-i-orfi/by_heading", "filename": "divan-i-harb-i-orfi.epub", "title": "Divan-ı Harb-i Örfî", "author": "Bediüzzaman Said Nursi", "group": "kucuk"},
-    {"dir": "02_Küçük_Kitaplar_ve_Rehberler/hutbe-i-samiye/by_heading", "filename": "hutbe-i-samiye.epub", "title": "Hutbe-i Şamiye", "author": "Bediüzzaman Said Nursi", "group": "kucuk"},
-    {"dir": "03_Eski_Said_Dönemi/munazarat/by_heading", "filename": "munazarat.epub", "title": "Münazarat", "author": "Bediüzzaman Said Nursi", "group": "kucuk"},
-    {"dir": "02_Küçük_Kitaplar_ve_Rehberler/genclik-rehberi/by_heading", "filename": "genclik-rehberi.epub", "title": "Gençlik Rehberi", "author": "Bediüzzaman Said Nursi", "group": "kucuk"},
-    {"dir": "02_Küçük_Kitaplar_ve_Rehberler/hanimlar-rehberi/by_heading", "filename": "hanimlar-rehberi.epub", "title": "Hanımlar Rehberi", "author": "Bediüzzaman Said Nursi", "group": "kucuk"},
-    {"dir": "02_Küçük_Kitaplar_ve_Rehberler/konferans/by_heading", "filename": "konferans.epub", "title": "Konferans", "author": "Bediüzzaman Said Nursi", "group": "kucuk"},
-    {"dir": "02_Küçük_Kitaplar_ve_Rehberler/tilsimlar/by_heading", "filename": "tilsimlar.epub", "title": "Tılsımlar", "author": "Bediüzzaman Said Nursi", "group": "kucuk"},
+    {"dir": "01_Külliyat_Temel_Eserler/sozlerY_final", "filename": "sozler.epub", "title": "Sözler", "author": "Bediüzzaman Said Nursi", "group": "Külliyat (Temel Eserler)"},
+    {"dir": "01_Külliyat_Temel_Eserler/mektubat/by_heading", "filename": "mektubat.epub", "title": "Mektubat", "author": "Bediüzzaman Said Nursi", "group": "Külliyat (Temel Eserler)"},
+    {"dir": "01_Külliyat_Temel_Eserler/lemalar/by_heading", "filename": "lemalar.epub", "title": "Lem'alar", "author": "Bediüzzaman Said Nursi", "group": "Külliyat (Temel Eserler)"},
+    {"dir": "01_Külliyat_Temel_Eserler/sualar/by_heading", "filename": "sualar.epub", "title": "Şuâlar", "author": "Bediüzzaman Said Nursi", "group": "Külliyat (Temel Eserler)"},
+    {"dir": "01_Külliyat_Temel_Eserler/tarihce-i-hayat/by_heading", "filename": "tarihce-i-hayat.epub", "title": "Tarihçe-i Hayat", "author": "Bediüzzaman Said Nursi", "group": "Külliyat (Diğer Eserler)"},
+    {"dir": "01_Külliyat_Temel_Eserler/mesnevi-i-nuriye/by_heading", "filename": "mesnevi-i-nuriye.epub", "title": "Mesnevî-i Nuriye", "author": "Bediüzzaman Said Nursi", "group": "Külliyat (Diğer Eserler)"},
+    {"dir": "01_Külliyat_Temel_Eserler/isaratul-icaz/by_heading", "filename": "isaratul-icaz.epub", "title": "İşaratü'l-İ'caz", "author": "Bediüzzaman Said Nursi", "group": "Külliyat (Diğer Eserler)"},
+    {"dir": "01_Külliyat_Temel_Eserler/sikke-i-tasdik-i-gaybi/by_heading", "filename": "sikke-i-tasdik-i-gaybi.epub", "title": "Sikke-i Tasdik-i Gaybî", "author": "Bediüzzaman Said Nursi", "group": "Külliyat (Diğer Eserler)"},
+    {"dir": "01_Külliyat_Temel_Eserler/barla-lahikasi/by_heading", "filename": "barla-lahikasi.epub", "title": "Barla Lâhikası", "author": "Bediüzzaman Said Nursi", "group": "Külliyat (Lâhikalar)"},
+    {"dir": "01_Külliyat_Temel_Eserler/kastamonu-lahikasi/by_heading", "filename": "kastamonu-lahikasi.epub", "title": "Kastamonu Lâhikası", "author": "Bediüzzaman Said Nursi", "group": "Külliyat (Lâhikalar)"},
+    {"dir": "01_Külliyat_Temel_Eserler/emirdag-lahikasi-1/by_heading", "filename": "emirdag-lahikasi-1.epub", "title": "Emirdağ Lâhikası 1", "author": "Bediüzzaman Said Nursi", "group": "Külliyat (Lâhikalar)"},
+    {"dir": "01_Külliyat_Temel_Eserler/emirdag-lahikasi-2/by_heading", "filename": "emirdag-lahikasi-2.epub", "title": "Emirdağ Lâhikası 2", "author": "Bediüzzaman Said Nursi", "group": "Külliyat (Lâhikalar)"},
+    {"dir": "01_Külliyat_Temel_Eserler/asa-yi-musa/by_heading", "filename": "asa-yi-musa.epub", "title": "Asâ-yı Musa", "author": "Bediüzzaman Said Nursi", "group": "Külliyat (Diğer Eserler)"},
+    {"dir": "01_Külliyat_Temel_Eserler/muhakemat/by_heading", "filename": "muhakemat.epub", "title": "Muhakemat", "author": "Bediüzzaman Said Nursi", "group": "Külliyat (Diğer Eserler)"},
+    {"dir": "03_Eski_Said_Dönemi/sunuhat/by_heading", "filename": "sunuhat.epub", "title": "Sünûhat", "author": "Bediüzzaman Said Nursi", "group": "Eski Said Dönemi"},
+    {"dir": "03_Eski_Said_Dönemi/isarat/by_heading", "filename": "isarat.epub", "title": "İşârât", "author": "Bediüzzaman Said Nursi", "group": "Eski Said Dönemi"},
+    {"dir": "03_Eski_Said_Dönemi/tuluat/by_heading", "filename": "tuluat.epub", "title": "Tulûât", "author": "Bediüzzaman Said Nursi", "group": "Eski Said Dönemi"},
+    {"dir": "03_Eski_Said_Dönemi/nurun-ilk-kapisi/by_heading", "filename": "nurun-ilk-kapisi.epub", "title": "Nur'un İlk Kapısı", "author": "Bediüzzaman Said Nursi", "group": "Eski Said Dönemi"},
+    {"dir": "02_Küçük_Kitaplar_ve_Rehberler/nur-cesmesi/by_heading", "filename": "nur-cesmesi.epub", "title": "Nur Çeşmesi", "author": "Bediüzzaman Said Nursi", "group": "Küçük Kitaplar ve Rehberler"},
+    {"dir": "03_Eski_Said_Dönemi/divan-i-harb-i-orfi/by_heading", "filename": "divan-i-harb-i-orfi.epub", "title": "Divan-ı Harb-i Örfî", "author": "Bediüzzaman Said Nursi", "group": "Eski Said Dönemi"},
+    {"dir": "02_Küçük_Kitaplar_ve_Rehberler/hutbe-i-samiye/by_heading", "filename": "hutbe-i-samiye.epub", "title": "Hutbe-i Şamiye", "author": "Bediüzzaman Said Nursi", "group": "Küçük Kitaplar ve Rehberler"},
+    {"dir": "03_Eski_Said_Dönemi/munazarat/by_heading", "filename": "munazarat.epub", "title": "Münazarat", "author": "Bediüzzaman Said Nursi", "group": "Eski Said Dönemi"},
+    {"dir": "02_Küçük_Kitaplar_ve_Rehberler/genclik-rehberi/by_heading", "filename": "genclik-rehberi.epub", "title": "Gençlik Rehberi", "author": "Bediüzzaman Said Nursi", "group": "Küçük Kitaplar ve Rehberler"},
+    {"dir": "02_Küçük_Kitaplar_ve_Rehberler/hanimlar-rehberi/by_heading", "filename": "hanimlar-rehberi.epub", "title": "Hanımlar Rehberi", "author": "Bediüzzaman Said Nursi", "group": "Küçük Kitaplar ve Rehberler"},
+    {"dir": "02_Küçük_Kitaplar_ve_Rehberler/konferans/by_heading", "filename": "konferans.epub", "title": "Konferans", "author": "Bediüzzaman Said Nursi", "group": "Küçük Kitaplar ve Rehberler"},
+    {"dir": "02_Küçük_Kitaplar_ve_Rehberler/tilsimlar/by_heading", "filename": "tilsimlar.epub", "title": "Tılsımlar", "author": "Bediüzzaman Said Nursi", "group": "Küçük Kitaplar ve Rehberler"},
 ]
 
 CSS = r"""/* ── Premium Risale-i Nur EPUB CSS ────── */
@@ -279,13 +279,26 @@ def markdown_to_html(text: str, book_slug: str) -> tuple[str, list[dict]]:
     """Premium conversion with smart Arabic and marker detection."""
     body_text, footnotes_dict = extract_footnotes(text)
     
+    fn_map = {}
+    fn_counter = 1
+
     def format_inline(t: str) -> str:
         # Detect inline Arabic (segments of 3+ Arabic chars)
         t = re.sub(r"([\u0600-\u06FF]{3,}(?:\s+[\u0600-\u06FF]{3,})*)", r'<span class="arabic-inline" dir="rtl">\1</span>', t)
         t = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", t)
         t = re.sub(r"\*([^*]+)\*", r"<em>\1</em>", t)
         t = re.sub(r"_([^_]+)_", r"<em>\1</em>", t)
-        t = re.sub(r"\[\^([^\]]+)\]", rf'<a href="#fn-{book_slug}-\1" id="fnref-{book_slug}-\1" epub:type="noteref"><sup>\1</sup></a>', t)
+        
+        def repl_fn(m):
+            nonlocal fn_counter
+            k = m.group(1)
+            if k not in fn_map:
+                fn_map[k] = str(fn_counter)
+                fn_counter += 1
+            num = fn_map[k]
+            return f'<a href="#fn-{book_slug}-{k}" id="fnref-{book_slug}-{k}" epub:type="noteref"><sup>{num}</sup></a>'
+            
+        t = re.sub(r"\[\^([^\]]+)\]", repl_fn, t)
         return t
 
     def repl_h(m):
@@ -342,7 +355,8 @@ def markdown_to_html(text: str, book_slug: str) -> tuple[str, list[dict]]:
     if footnotes_dict:
         html_lines.append('<div class="footnotes-container"><hr/>')
         for k, fn in footnotes_dict.items():
-            html_lines.append(f'<aside id="fn-{book_slug}-{k}" epub:type="footnote" class="footnote"><p><strong>[{k}]</strong> {format_inline(fn)} <a href="#fnref-{book_slug}-{k}" class="footnote-backref">↩</a></p></aside>')
+            num = fn_map.get(k, "*")
+            html_lines.append(f'<aside id="fn-{book_slug}-{k}" epub:type="footnote" class="footnote"><p><strong>[{num}]</strong> {format_inline(fn)} <a href="#fnref-{book_slug}-{k}" class="footnote-backref">↩</a></p></aside>')
         html_lines.append('</div>')
         
     return "\n".join(html_lines), headers
@@ -442,7 +456,7 @@ export interface BuiltinBookEntry {{
   title: string;
   author: string;
   language: string;
-  group: 'risale' | 'nur';
+  group: string;
   url?: string;
   coverFilename?: string;
 }}

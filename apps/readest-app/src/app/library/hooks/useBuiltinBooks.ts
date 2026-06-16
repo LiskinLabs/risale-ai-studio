@@ -45,7 +45,10 @@ export const useBuiltinBooks = () => {
           const baseUrl = getBuiltinBooksBaseUrl();
           const url = `${baseUrl}/${entry.filename}`;
           console.log(`[BuiltinBooks] Importing: ${entry.title} from ${url}`);
-          const book = await appService.importBook(url, [], { saveBook: true });
+          const book = await appService.importBook(url, [], {
+            saveBook: true,
+            groupName: entry.group,
+          });
           if (book) {
             book.builtin = true;
             newBooks.push(book);

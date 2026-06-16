@@ -19,6 +19,7 @@ interface TooltipState {
   x: number;
   y: number;
   show: boolean;
+  source: 'lugat' | 'meal' | 'hasiye';
 }
 
 const IDB_NAME = 'risale-meaning-cache';
@@ -33,6 +34,7 @@ const HoverDictionaryOverlay: React.FC<{ bookKey: string }> = ({ bookKey }) => {
     x: 0,
     y: 0,
     show: false,
+    source: 'lugat',
   });
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -69,14 +71,23 @@ const HoverDictionaryOverlay: React.FC<{ bookKey: string }> = ({ bookKey }) => {
 
   // ── Show / hide ─────────────────────────────────────────────────────
 
-  const show = useCallback((word: string, def: string, x: number, y: number) => {
-    if (hoverTimer.current) clearTimeout(hoverTimer.current);
-    if (hideTimer.current) clearTimeout(hideTimer.current);
-    lastWord.current = word;
-    hoverTimer.current = setTimeout(() => {
-      setTip({ word, definition: def, x, y, show: true });
-    }, DELAY);
-  }, []);
+  const show = useCallback(
+    (
+      word: string,
+      def: string,
+      x: number,
+      y: number,
+      source: 'lugat' | 'meal' | 'hasiye' = 'lugat',
+    ) => {
+      if (hoverTimer.current) clearTimeout(hoverTimer.current);
+      if (hideTimer.current) clearTimeout(hideTimer.current);
+      lastWord.current = word;
+      hoverTimer.current = setTimeout(() => {
+        setTip({ word, definition: def, x, y, show: true, source });
+      }, DELAY);
+    },
+    [],
+  );
 
   const hide = useCallback(() => {
     if (hoverTimer.current) clearTimeout(hoverTimer.current);
@@ -105,11 +116,32 @@ const HoverDictionaryOverlay: React.FC<{ bookKey: string }> = ({ bookKey }) => {
   useEffect(() => {
     const handler = async (e: MessageEvent) => {
       const d = e.data;
-      if (!d || d.type !== 'hover-word' || d.bookKey !== bookKey) return;
-      const { word, x, y } = d;
-      if (!word || word.length < 3 || word === lastWord.current) return;
-      const def = await lookup(word);
-      if (def) show(word, def, x, y);
+      if (!d || d.bookKey !== bookKey) return;
+
+      if (d.type === 'hover-info') {
+        const { data, x, y } = d;
+        let content = data.content;
+        if (data.type === 'hover-meal' || data.type === 'hover-hasiye') {
+          try {
+            content = decodeURIComponent(escape(atob(content)));
+          } catch (e) {}
+        }
+        show(
+          data.title,
+          content,
+          x,
+          y,
+          data.type.replace('hover-', '') as 'lugat' | 'meal' | 'hasiye',
+        );
+        return;
+      }
+
+      if (d.type === 'hover-word') {
+        const { word, x, y } = d;
+        if (!word || word.length < 3 || word === lastWord.current) return;
+        const def = await lookup(word);
+        if (def) show(word, def, x, y, 'lugat');
+      }
     };
     const leaveHandler = (e: MessageEvent) => {
       if (e.data?.type === 'hover-leave' && e.data?.bookKey === bookKey) hide();
@@ -142,28 +174,43 @@ const HoverDictionaryOverlay: React.FC<{ bookKey: string }> = ({ bookKey }) => {
   var lastWord = '';
   var throttle = null;
 
-  function getWordAt(x, y) {
-    if (!document.caretRangeFromPoint) return null;
-    var range = document.caretRangeFromPoint(x, y);
-    if (!range || range.startContainer.nodeType !== Node.TEXT_NODE) return null;
-    var text = range.startContainer.textContent || '';
-    var s = range.startOffset, e = range.startOffset;
-    while (s > 0 && /[\\\\wÀ-ÖØ-öø-ÿ'\\\\u0600-\\\\u06FF]/.test(text[s-1]||'')) s--;
-    while (e < text.length && /[\\\\wÀ-ÖØ-öø-ÿ'\\\\u0600-\\\\u06FF]/.test(text[e]||'')) e++;
-    var w = text.slice(s, e).trim();
-    if (w.length < 2 || /^[\\\\d.,;:!?\\\\-]+$/.test(w)) return null;
-    return w;
-  }
-
   document.addEventListener('mousemove', function(e) {
     if (throttle) return;
     throttle = setTimeout(function() {
       throttle = null;
-      var w = getWordAt(e.clientX, e.clientY);
-      if (!w) { if (lastWord) { window.parent.postMessage({ type:'hover-leave', bookKey:${safeKey} }, '*'); lastWord=''; } return; }
-      if (w !== lastWord) {
-        lastWord = w;
-        window.parent.postMessage({ type:'hover-word', word:w, x:e.clientX, y:e.clientY, bookKey:${safeKey} }, '*');
+      var el = document.elementFromPoint(e.clientX, e.clientY);
+      var hoverData = null;
+      if (el) {
+        var mealEl = el.closest('[data-meal-text]');
+        if (mealEl) hoverData = { type: 'hover-meal', content: mealEl.getAttribute('data-meal-text'), title: 'Meâl' };
+        if (!hoverData) {
+          var hasiyeEl = el.closest('a[epub\\\\:type="noteref"]');
+          if (hasiyeEl) {
+            var targetId = hasiyeEl.getAttribute('href').replace('#', '');
+            var aside = document.getElementById(targetId);
+            if (aside) {
+              hoverData = { type: 'hover-hasiye', content: btoa(unescape(encodeURIComponent(aside.innerHTML))), title: 'Hâşiye' };
+            }
+          }
+        }
+        if (!hoverData) {
+          var defEl = el.closest('[data-def]');
+          if (defEl) hoverData = { type: 'hover-def', content: defEl.getAttribute('data-def'), title: defEl.textContent };
+        }
+      }
+
+      if (hoverData) {
+        var key = hoverData.type + ':' + hoverData.content;
+        if (key !== lastWord) {
+          lastWord = key;
+          window.parent.postMessage({ type: 'hover-info', data: hoverData, x: e.clientX, y: e.clientY, bookKey: ${safeKey} }, '*');
+        }
+        return;
+      }
+
+      if (lastWord) {
+        window.parent.postMessage({ type:'hover-leave', bookKey:${safeKey} }, '*');
+        lastWord = '';
       }
     }, 180);
   }, { passive:true });
@@ -197,10 +244,14 @@ const HoverDictionaryOverlay: React.FC<{ bookKey: string }> = ({ bookKey }) => {
 
   if (!tip.show || !tip.definition) return null;
 
-  const short =
-    tip.definition.length > 180
-      ? tip.definition.slice(0, 180).replace(/\s+\S*$/, '') + '…'
+  const isHtml = tip.source === 'hasiye';
+  const short = isHtml
+    ? tip.definition
+    : tip.definition.length > 250
+      ? tip.definition.slice(0, 250).replace(/\s+\S*$/, '') + '…'
       : tip.definition;
+
+  const sourceLabels = { lugat: 'Risale Lugat', meal: 'Meâl', hasiye: 'Hâşiye' };
 
   return (
     <div
@@ -210,8 +261,15 @@ const HoverDictionaryOverlay: React.FC<{ bookKey: string }> = ({ bookKey }) => {
     >
       <div className='bg-base-100/95 text-base-content border-base-300/50 max-w-[300px] rounded-lg border px-3 py-2 text-[13px] leading-relaxed shadow-lg backdrop-blur-sm'>
         <div className='mb-1 text-[11px] font-semibold opacity-45'>{tip.word}</div>
-        <div className='line-clamp-4 text-[13px] leading-snug opacity-80'>{short}</div>
-        <div className='mt-1.5 text-[10px] opacity-30'>Risale Lugat</div>
+        {isHtml ? (
+          <div
+            className='text-[13px] leading-snug opacity-80 max-h-[200px] overflow-y-auto'
+            dangerouslySetInnerHTML={{ __html: short }}
+          />
+        ) : (
+          <div className='line-clamp-4 text-[13px] leading-snug opacity-80'>{short}</div>
+        )}
+        <div className='mt-1.5 text-[10px] opacity-30'>{sourceLabels[tip.source] || 'Bilgi'}</div>
       </div>
     </div>
   );
