@@ -1,2 +1,2 @@
 @echo off
-powershell -ExecutionPolicy Bypass -File C:\Users\silvestr.liskin\Desktop\risale-ai-studio\sync-readest.ps1
+powershell -ExecutionPolicy Bypass -File "%~dp0sync-readest.ps1"
