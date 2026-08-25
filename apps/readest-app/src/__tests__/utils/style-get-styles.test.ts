@@ -504,6 +504,52 @@ describe('getColorStyles branches (via getStyles)', () => {
     expect(css).not.toMatch(/^\s*img\s*\{[^}]*mix-blend-mode: multiply/m);
   });
 
+  // #5250: with overrideColor also on, a second filter declaration in the same
+  // img rule silently discarded invert(100%) (last declaration wins), and
+  // mix-blend-mode: multiply erased images against dark page backgrounds
+  // (multiply with black is always black).
+  describe('invert image in dark mode combined with overrideColor (#5250)', () => {
+    // Concatenate every plain `img { ... }` rule in document order: they all
+    // share the same specificity, so this mirrors the cascade the browser
+    // applies (last declaration wins).
+    const getImgBlock = (css: string) => {
+      const blocks = [...css.matchAll(/^\s*img\s*\{([^}]*)\}/gm)].map((m) => m[1]!);
+      expect(blocks.length).toBeGreaterThan(0);
+      return blocks.join('\n');
+    };
+
+    it('keeps invert(100%) as the only filter declaration when overrideColor is on', () => {
+      const vs = makeViewSettings({ invertImgColorInDark: true, overrideColor: true });
+      const theme = makeThemeCode({ isDarkMode: true, bg: '#000000', fg: '#e0e0e0' });
+      const imgBlock = getImgBlock(getStyles(vs, theme));
+      const filters = [...imgBlock.matchAll(/filter:[^;]*;/g)].map((m) => m[0]);
+      expect(filters).toEqual(['filter: invert(100%);']);
+    });
+
+    it('does not multiply-blend inverted images into the dark background', () => {
+      const vs = makeViewSettings({ invertImgColorInDark: true, overrideColor: true });
+      const theme = makeThemeCode({ isDarkMode: true, bg: '#000000', fg: '#e0e0e0' });
+      const imgBlock = getImgBlock(getStyles(vs, theme));
+      expect(imgBlock).not.toContain('mix-blend-mode: multiply');
+    });
+
+    it('keeps the grayscale + multiply treatment when invert is off in dark mode', () => {
+      const vs = makeViewSettings({ invertImgColorInDark: false, overrideColor: true });
+      const theme = makeThemeCode({ isDarkMode: true, bg: '#1a1a1a', fg: '#e0e0e0' });
+      const imgBlock = getImgBlock(getStyles(vs, theme));
+      expect(imgBlock).toContain('filter: grayscale(100%) contrast(1.2) brightness(1.2);');
+      expect(imgBlock).toContain('mix-blend-mode: multiply;');
+    });
+
+    it('keeps multiply in light mode when overrideColor is on regardless of invert', () => {
+      const vs = makeViewSettings({ invertImgColorInDark: true, overrideColor: true });
+      const theme = makeThemeCode({ isDarkMode: false });
+      const imgBlock = getImgBlock(getStyles(vs, theme));
+      expect(imgBlock).toContain('mix-blend-mode: multiply;');
+      expect(imgBlock).not.toContain('filter: invert(100%)');
+    });
+  });
+
   it('sets bg-texture-id CSS variable', () => {
     const vs = makeViewSettings({ backgroundTextureId: 'paper' });
     const theme = makeThemeCode();
@@ -745,6 +791,32 @@ describe('getTranslationStyles branches (via getStyles)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// getRubyStyles branches (Word Lens gloss <rt> size + color)
+// ---------------------------------------------------------------------------
+describe('getRubyStyles branches (via getStyles)', () => {
+  const theme = makeThemeCode();
+  const rtBlock = (css: string) => css.match(/ruby\.wl-gloss\s*>\s*rt\s*\{([^}]*)\}/)?.[1] ?? '';
+
+  it('defaults the gloss to 0.5em and muted (opacity 0.7, no color override)', () => {
+    const block = rtBlock(getStyles(makeViewSettings(), theme));
+    expect(block).toMatch(/font-size:\s*0\.5em/);
+    expect(block).toMatch(/opacity:\s*0\.7/);
+    expect(block).not.toContain('color:');
+  });
+
+  it('applies a configured gloss font size', () => {
+    const block = rtBlock(getStyles(makeViewSettings({ wordLensGlossFontSize: 0.8 }), theme));
+    expect(block).toMatch(/font-size:\s*0\.8em/);
+  });
+
+  it('applies a configured gloss color at full opacity', () => {
+    const block = rtBlock(getStyles(makeViewSettings({ wordLensGlossColor: '#ff0000' }), theme));
+    expect(block).toMatch(/color:\s*#ff0000/);
+    expect(block).toMatch(/opacity:\s*1\b/);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // getStyles integration: userStylesheet appended
 // ---------------------------------------------------------------------------
 describe('getStyles integration', () => {
@@ -852,5 +924,28 @@ describe('custom @font-face inlining (via getStyles)', () => {
     const vs = makeViewSettings();
     const css = getStyles(vs, theme);
     expect(css).not.toContain('font-family: "My Test Font"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Instant-highlight selection suppression
+// ---------------------------------------------------------------------------
+// The instant-highlight quick action owns the touch long-press. Stylesheet
+// `user-select: none` is NOT used for this: on iOS WebKit it breaks
+// `caretRangeFromPoint` (returns null on non-selectable content), killing the
+// instant highlight itself. The system selection is suppressed natively
+// instead (TextSelectionSuppressor in the native-bridge iOS plugin, driven by
+// setSelectionSuppressed from FoliateViewer); getStyles must stay free of
+// user-select suppression so caret positioning keeps working.
+describe('instant-highlight selection suppression stays out of getStyles', () => {
+  const theme = makeThemeCode();
+
+  it('never makes the content non-selectable, even with instant highlight on', () => {
+    const vs = makeViewSettings({
+      enableAnnotationQuickActions: true,
+      annotationQuickAction: 'highlight',
+    });
+    const css = getStyles(vs, theme);
+    expect(css).not.toContain('user-select: none !important');
   });
 });

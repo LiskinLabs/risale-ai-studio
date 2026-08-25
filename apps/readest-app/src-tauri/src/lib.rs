@@ -23,16 +23,21 @@ use tauri_plugin_fs::FsExt;
 #[cfg(desktop)]
 use tauri::{Listener, Url};
 mod clip_url;
+mod cover_thumbnail;
 mod dir_scanner;
 #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
 mod discord_rpc;
 mod epub_parser;
+mod localsend;
 #[cfg(target_os = "macos")]
 mod macos;
 mod mobi_parser;
 mod nightly_update;
 mod parser_common;
 mod range_file;
+mod sentry_config;
+#[cfg(desktop)]
+mod spawn_fresh_browser;
 mod transfer_file;
 #[cfg(desktop)]
 mod window_state;
@@ -245,6 +250,62 @@ fn get_executable_dir() -> String {
         .unwrap_or_default()
 }
 
+// Pure decision for whether the in-app updater should be hidden. Kept
+// dependency-free so it can be unit tested for every platform combination.
+//
+// - `env_disable`: READEST_DISABLE_UPDATER is set (explicit opt-out).
+// - Linux only: Tauri's updater can self-update AppImage bundles *only*, so
+//   deb/rpm/pacman (`!is_appimage`) and Flatpak installs are updated by the
+//   system package manager and must not show the in-app updater.
+#[cfg(desktop)]
+fn compute_updater_disabled(
+    env_disable: bool,
+    is_linux: bool,
+    is_flatpak: bool,
+    is_appimage: bool,
+) -> bool {
+    env_disable || (is_linux && (is_flatpak || !is_appimage))
+}
+
+#[cfg(desktop)]
+fn updater_disabled() -> bool {
+    let env_disable = std::env::var("READEST_DISABLE_UPDATER").is_ok();
+    #[cfg(target_os = "linux")]
+    {
+        let is_flatpak =
+            std::env::var("FLATPAK_ID").is_ok() || std::path::Path::new("/.flatpak-info").exists();
+        let is_appimage = std::env::var("APPIMAGE").is_ok()
+            || std::env::current_exe()
+                .map(|path| path.to_string_lossy().contains("/tmp/.mount_"))
+                .unwrap_or(false);
+        compute_updater_disabled(env_disable, true, is_flatpak, is_appimage)
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        compute_updater_disabled(env_disable, false, false, false)
+    }
+}
+
+// Authoritative source of truth for the frontend `hasUpdater` capability.
+// Read via IPC in `NativeAppService.init()` so the decision does not depend on
+// the injected init-script global, which is not reliably visible to page
+// scripts on every Linux/WebKitGTK setup (see issue #4874).
+#[cfg(desktop)]
+#[tauri::command]
+fn is_updater_disabled() -> bool {
+    updater_disabled()
+}
+
+// Record the WebView engine/version (parsed from the app's User-Agent) so Sentry
+// events can be correlated with WebView version. Called once from
+// `NativeAppService.init()`; no-op when Sentry is disabled.
+#[tauri::command]
+fn set_webview_info(user_agent: String) {
+    if let Some((engine, version)) = sentry_config::parse_webview_info(&user_agent) {
+        sentry_config::set_webview_info(engine, version);
+    }
+}
+
 #[derive(Clone, serde::Serialize)]
 #[allow(dead_code)]
 struct SingleInstancePayload {
@@ -254,6 +315,83 @@ struct SingleInstancePayload {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Initialize Sentry as early as possible so panics during startup are
+    // captured. `None` DSN (unset SENTRY_DSN) => disabled, so local and fork
+    // builds don't report. This client covers Rust panics and the events the
+    // WebView forwards; native crashes belong to the sentry-android /
+    // sentry-cocoa SDKs on mobile and go unreported on desktop, where the
+    // out-of-process minidump handler is deliberately off (see the
+    // `minidump_feature_is_enabled_on_no_target` test). The guard must outlive
+    // the app, so it is held until `run()` returns (after the blocking
+    // `.run(...)` call).
+    let sentry_guard = sentry_config::sentry_dsn().map(|dsn| {
+        sentry::init((
+            dsn,
+            sentry::ClientOptions {
+                release: Some(sentry_config::sentry_release().into()),
+                environment: Some(sentry_config::sentry_environment().into()),
+                traces_sample_rate: 0.0,
+                send_default_pii: false,
+                // On Android the context integration reads `uname()` and reports
+                // the OS as "Linux"; relabel it "Android" (and recover the Android
+                // version from the kernel string) so events group correctly.
+                before_send: Some(std::sync::Arc::new(|mut event| {
+                    // Drop known-benign browser noise (e.g. View Transition
+                    // skipped/aborted, ResizeObserver loop) before it is reported.
+                    if event.exception.values.iter().any(|ex| {
+                        ex.value
+                            .as_deref()
+                            .is_some_and(sentry_config::is_ignored_browser_error)
+                    }) {
+                        return None;
+                    }
+                    // Drop the contained MOBI cover panic: the `mobi` crate panics
+                    // on a corrupt cover record, which extract_cover catch_unwinds
+                    // (the import still succeeds), but the panic hook reports it
+                    // anyway. Match our own frame so unrelated slice panics stay.
+                    if event.exception.values.iter().any(|ex| {
+                        ex.stacktrace.iter().any(|st| {
+                            st.frames.iter().any(|f| {
+                                f.function
+                                    .as_deref()
+                                    .is_some_and(sentry_config::is_mobi_cover_panic_frame)
+                            })
+                        })
+                    }) {
+                        return None;
+                    }
+                    if let Some(sentry::protocol::Context::Os(os)) = event.contexts.get_mut("os") {
+                        if let Some(name) = sentry_config::corrected_os_name(
+                            std::env::consts::OS,
+                            os.name.as_deref(),
+                        ) {
+                            os.name = Some(name.to_owned());
+                            if let Some(version) = os
+                                .version
+                                .as_deref()
+                                .and_then(sentry_config::android_version_from_uname)
+                            {
+                                os.version = Some(version);
+                            }
+                        }
+                    }
+                    // Tag the WebView engine/version (reported by the app at
+                    // startup) so crashes can be correlated with it.
+                    if let Some((engine, version)) = sentry_config::webview_info() {
+                        event
+                            .tags
+                            .insert("webview.engine".to_string(), engine.clone());
+                        event
+                            .tags
+                            .insert("webview.version".to_string(), version.clone());
+                    }
+                    Some(event)
+                })),
+                ..Default::default()
+            },
+        ))
+    });
+
     let builder = tauri::Builder::default()
         .plugin(
             tauri_plugin_log::Builder::new()
@@ -271,7 +409,11 @@ pub fn run() {
             upload_file,
             get_environment_variable,
             get_executable_dir,
+            set_webview_info,
+            #[cfg(desktop)]
+            is_updater_disabled,
             allow_paths_in_scopes,
+            cover_thumbnail::optimize_cover_thumbnails,
             dir_scanner::read_dir,
             epub_parser::parse_epub_metadata,
             epub_parser::extract_epub_cover_full,
@@ -291,6 +433,17 @@ pub fn run() {
             #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
             discord_rpc::clear_book_presence,
             clip_url::clip_url,
+            localsend::commands::localsend_start,
+            localsend::commands::localsend_stop,
+            localsend::commands::localsend_get_status,
+            localsend::commands::localsend_list_devices,
+            localsend::commands::localsend_announce,
+            localsend::commands::localsend_respond,
+            localsend::commands::localsend_cancel_receive,
+            localsend::commands::localsend_send_files,
+            localsend::commands::localsend_cancel_send,
+            #[cfg(desktop)]
+            spawn_fresh_browser::spawn_fresh_browser,
             nightly_update::verify_update_signature,
             #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
             nightly_update::install_nightly_update,
@@ -351,6 +504,9 @@ pub fn run() {
     let builder = builder.plugin(macos::traffic_light::init());
 
     #[cfg(target_os = "macos")]
+    let builder = builder.plugin(macos::window::init());
+
+    #[cfg(target_os = "macos")]
     let builder = builder.plugin(macos::safari_auth::init());
 
     #[cfg(target_os = "ios")]
@@ -359,8 +515,16 @@ pub fn run() {
     #[cfg(any(target_os = "ios", target_os = "android"))]
     let builder = builder.plugin(tauri_plugin_haptics::init());
 
+    #[cfg(any(target_os = "ios", target_os = "android"))]
+    let builder = builder.plugin(tauri_plugin_biometric::init());
+
     #[cfg(feature = "webdriver")]
     let builder = builder.plugin(tauri_plugin_webdriver::init());
+
+    let builder = match sentry_guard.as_ref() {
+        Some(client) => builder.plugin(tauri_plugin_sentry::init(client)),
+        None => builder,
+    };
 
     builder
         .setup(|#[allow(unused_variables)] app| {
@@ -378,6 +542,7 @@ pub fn run() {
                 let discord_client = Arc::new(Mutex::new(discord_rpc::DiscordRpcClient::new()));
                 app.manage(discord_client);
             }
+            app.manage(localsend::LocalSendState::default());
 
             #[cfg(desktop)]
             {
@@ -432,18 +597,13 @@ pub fn run() {
             #[cfg(not(target_os = "linux"))]
             let is_appimage = false;
 
-            // Flatpak mounts the app directory read-only, so the bundled updater can
-            // download but never apply an update. Disable it and leave updates to the
-            // Flatpak runtime. Detect via FLATPAK_ID or the /.flatpak-info sandbox file.
+            // The in-app updater is hidden for installs it can't actually update
+            // (Linux deb/rpm/pacman and Flatpak) and when READEST_DISABLE_UPDATER
+            // is set. This mirrors the `is_updater_disabled` command that
+            // `NativeAppService.init()` reads authoritatively; the injected global
+            // below is only a best-effort fast path.
             #[cfg(desktop)]
-            let updater_disabled = {
-                #[cfg(target_os = "linux")]
-                let is_flatpak = std::env::var("FLATPAK_ID").is_ok()
-                    || std::path::Path::new("/.flatpak-info").exists();
-                #[cfg(not(target_os = "linux"))]
-                let is_flatpak = false;
-                std::env::var("READEST_DISABLE_UPDATER").is_ok() || is_flatpak
-            };
+            let updater_disabled = updater_disabled();
             #[cfg(not(desktop))]
             let updater_disabled = false;
 
@@ -519,11 +679,14 @@ pub fn run() {
             #[cfg(all(not(target_os = "macos"), desktop))]
             let win_builder = win_builder.inner_size(800.0, 600.0).resizable(true);
 
+            // The overlay title bar draws its title over the app's own header,
+            // so `macos::window::init()` hides the title text and the window
+            // can carry a real name for the Window menu and VoiceOver.
             #[cfg(target_os = "macos")]
             let win_builder = win_builder
                 .decorations(true)
                 .title_bar_style(TitleBarStyle::Overlay)
-                .title("");
+                .title("Readest");
 
             #[cfg(all(not(target_os = "macos"), desktop))]
             let win_builder = {
@@ -541,9 +704,14 @@ pub fn run() {
                 }
                 #[cfg(target_os = "linux")]
                 {
-                    builder = builder
-                        .transparent(true)
-                        .background_color(tauri::window::Color(0, 0, 0, 0));
+                    // Keep the window opaque on Linux. A transparent WebKitGTK
+                    // window (previously used to draw rounded corners, #1982)
+                    // composites as fully transparent whenever its web process is
+                    // too busy to repaint damaged regions (e.g. during a library
+                    // backup), so the app "turns invisible" on any interaction
+                    // (#3682). An opaque window instead retains its last painted
+                    // frame, at the cost of square corners.
+                    builder = builder.transparent(false);
                 }
 
                 builder
@@ -559,16 +727,29 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             {
                 let window = win_builder.build().unwrap();
-                // On macOS, closing a window (via Cmd+W or the red traffic light) should
-                // not quit the app — only Cmd+Q should. Hide the window instead so the
-                // app keeps running in the dock, and restore it when the user reopens
-                // the app from the dock.
+                // On macOS, closing a window (via Cmd+W or the red traffic light)
+                // should not quit the app — only Cmd+Q should — and normally hides
+                // instead of minimizing (#5240): the app keeps running in the dock
+                // and the window is restored when the user reopens the app from the
+                // dock. On Tahoe the hide is defensive against the `orderOut:`
+                // phantom-window regression (#4875); see
+                // `macos::window::hide_main_window` for the fullscreen-failure
+                // fallback.
                 let window_for_close = window.clone();
-                window.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                window.on_window_event(move |event| match event {
+                    tauri::WindowEvent::CloseRequested { api, .. } => {
                         api.prevent_close();
-                        let _ = window_for_close.hide();
+                        macos::window::hide_main_window(&window_for_close);
                     }
+                    // Safety net for JS-side `show()` callers (e.g.
+                    // `ensureMainLibraryWindow` in src/utils/nav.ts re-shows a hidden
+                    // main window from a reader window without a dock Reopen): the
+                    // window can only become key after it is back on screen, so any
+                    // pending defensively-zeroed frame must be restored by now.
+                    tauri::WindowEvent::Focused(true) => {
+                        macos::window::restore_main_window_frame(&window_for_close);
+                    }
+                    _ => {}
                 });
             }
 
@@ -607,13 +788,62 @@ pub fn run() {
                         ..
                     } => {
                         if let Some(window) = app_handle.get_webview_window("main") {
+                            // Undo a pending Tahoe defensive hide (zeroed frame) before
+                            // showing so the window reappears at its real position and
+                            // size. No-op when the window was hidden plainly.
+                            macos::window::restore_main_window_frame(&window);
                             let _ = window.show();
                             let _ = window.set_focus();
                             let _ = window.unminimize();
+                        }
+                    }
+                    // A programmatic exit emits ExitRequested before the window-state
+                    // plugin performs its final save. Restore any zeroed frame while
+                    // the window is still hidden so live geometry remains valid.
+                    tauri::RunEvent::ExitRequested { .. } => {
+                        if let Some(window) = app_handle.get_webview_window("main") {
+                            macos::window::restore_main_window_frame(&window);
                         }
                     }
                     _ => {}
                 }
             },
         );
+}
+
+#[cfg(all(test, desktop))]
+mod tests {
+    use super::compute_updater_disabled;
+
+    #[test]
+    fn env_opt_out_disables_on_any_desktop() {
+        // READEST_DISABLE_UPDATER is an explicit opt-out on every desktop OS.
+        assert!(compute_updater_disabled(true, false, false, false));
+        assert!(compute_updater_disabled(true, true, false, true));
+    }
+
+    #[test]
+    fn linux_system_package_install_is_disabled() {
+        // deb/rpm/pacman installs are not AppImage and not Flatpak. Tauri's
+        // Linux updater can't self-update them, so the in-app updater is hidden.
+        assert!(compute_updater_disabled(false, true, false, false));
+    }
+
+    #[test]
+    fn linux_flatpak_is_disabled() {
+        assert!(compute_updater_disabled(false, true, true, false));
+    }
+
+    #[test]
+    fn linux_appimage_keeps_updater() {
+        // AppImage is the one Linux bundle Tauri can self-update.
+        assert!(!compute_updater_disabled(false, true, false, true));
+    }
+
+    #[test]
+    fn non_linux_desktop_keeps_updater_without_opt_out() {
+        // macOS / Windows: the flatpak/appimage clause must not apply, so the
+        // updater stays enabled unless the env opt-out is set.
+        assert!(!compute_updater_disabled(false, false, false, false));
+    }
 }

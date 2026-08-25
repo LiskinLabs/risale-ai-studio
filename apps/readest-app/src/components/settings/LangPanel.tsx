@@ -4,6 +4,7 @@ import { useEnv } from '@/context/EnvContext';
 import { useAuth } from '@/context/AuthContext';
 import { useReaderStore } from '@/store/readerStore';
 import { useTranslation } from '@/hooks/useTranslation';
+import { useBookDataStore } from '@/store/bookDataStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { saveViewSettings } from '@/helpers/settings';
 import {
@@ -11,6 +12,7 @@ import {
   getTranslators,
   isTranslatorAvailable,
 } from '@/services/translators';
+import { isTranslationAvailable } from '@/services/translators/utils';
 import { useResetViewSettings } from '@/hooks/useResetSettings';
 import { useKeyDownActions } from '@/hooks/useKeyDownActions';
 import { TRANSLATED_LANGS, TRANSLATOR_LANGS } from '@/services/constants';
@@ -26,7 +28,7 @@ import {
   SettingsSwitchRow,
 } from './primitives';
 import CustomDictionaries from './CustomDictionaries';
-import WordWisePanel from './WordWisePanel';
+import WordLensPanel from './WordLensPanel';
 import { PiTranslate } from 'react-icons/pi';
 
 const LangPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset }) => {
@@ -36,6 +38,7 @@ const LangPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset 
   const { settings, applyUILanguage, activeSettingsItemId, setActiveSettingsItemId } =
     useSettingsStore();
   const { getView, getViewSettings, setViewSettings, recreateViewer } = useReaderStore();
+  const { getBookData } = useBookDataStore();
   const view = getView(bookKey);
   const viewSettings = getViewSettings(bookKey) || settings.globalViewSettings;
 
@@ -52,7 +55,17 @@ const LangPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset 
     viewSettings.convertChineseVariant,
   );
   const [showCustomDictionaries, setShowCustomDictionaries] = useState(false);
-  const [showWordWise, setShowWordWise] = useState(false);
+  const [showWordLens, setShowWordLens] = useState(false);
+
+  // Translation is unavailable for PDFs and for books already in the target
+  // language (issue #5600). The reader toolbar's toggler has always refused
+  // those; ungated here, turning it on for a PDF translated the text layer
+  // paragraph by paragraph and drained the daily AI translation quota. An
+  // already-on book keeps the switch live so it can be turned back off.
+  const translationAvailable = isTranslationAvailable(
+    getBookData(bookKey)?.book,
+    translateTargetLang,
+  );
 
   // Android Back / Esc: when a sub-page is open, intercept and step back to the
   // language list instead of letting <Dialog>'s listener close the whole
@@ -63,8 +76,8 @@ const LangPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset 
     onCancel: () => setShowCustomDictionaries(false),
   });
   useKeyDownActions({
-    enabled: showWordWise,
-    onCancel: () => setShowWordWise(false),
+    enabled: showWordLens,
+    onCancel: () => setShowWordLens(false),
   });
 
   // Deep-link: callers (e.g. the dictionary popup's manage icon) can set
@@ -288,8 +301,8 @@ const LangPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset 
     );
   }
 
-  if (showWordWise) {
-    return <WordWisePanel bookKey={bookKey} onBack={() => setShowWordWise(false)} />;
+  if (showWordLens) {
+    return <WordLensPanel bookKey={bookKey} onBack={() => setShowWordLens(false)} />;
   }
 
   return (
@@ -318,24 +331,27 @@ const LangPanel: React.FC<SettingsPanelPanelProp> = ({ bookKey, onRegisterReset 
       </BoxedList>
 
       <BoxedList
-        title={_('Word Wise')}
-        data-setting-id='settings.language.wordwise'
+        title={_('Word Lens')}
+        data-setting-id='settings.language.wordlens'
         cardClassName='overflow-hidden'
       >
         <NavigationRow
           icon={PiTranslate}
-          title={_('Word Wise')}
+          title={_('Word Lens')}
           status={_('Show a short native-language hint above difficult words.')}
-          onClick={() => setShowWordWise(true)}
+          onClick={() => setShowWordLens(true)}
         />
       </BoxedList>
 
       <BoxedList title={_('Translation')} data-setting-id='settings.language.translationEnabled'>
         <SettingsSwitchRow
           label={_('Enable Translation')}
+          description={
+            bookKey && !translationAvailable ? _('Not available for this book.') : undefined
+          }
           checked={translationEnabled}
           onChange={() => setTranslationEnabled(!translationEnabled)}
-          disabled={!bookKey}
+          disabled={!bookKey || (!translationAvailable && !translationEnabled)}
         />
         <SettingsSwitchRow
           label={_('Show Source Text')}

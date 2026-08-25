@@ -256,6 +256,24 @@ describe('updater', () => {
       );
     });
 
+    test('auto-check swallows Android update failure (READEST-22)', async () => {
+      mockOsType.mockReturnValue('android');
+      mockTauriFetch.mockRejectedValue(new Error('Network error'));
+
+      // Auto-check runs fire-and-forget on mount; a network failure must resolve
+      // false, not reject (which would become an unhandled rejection).
+      await expect(checkForAppUpdates(dummyTranslate, true)).resolves.toBe(false);
+    });
+
+    test('auto-check swallows desktop update failure (READEST-J)', async () => {
+      mockOsType.mockReturnValue('macos');
+      mockCheck.mockRejectedValue(
+        new Error('error sending request for url (releases/latest/download/latest.json)'),
+      );
+
+      await expect(checkForAppUpdates(dummyTranslate, true)).resolves.toBe(false);
+    });
+
     test('returns false for unsupported OS types', async () => {
       mockOsType.mockReturnValue('ios');
 
@@ -425,6 +443,18 @@ describe('getNightlyPlatformKey', () => {
   });
   test('macos', () => {
     expect(getNightlyPlatformKey('macos', 'aarch64', false, false)).toBe('darwin-aarch64');
+  });
+  test('windows/linux aarch64 still map to their arm keys', () => {
+    expect(getNightlyPlatformKey('windows', 'aarch64', false, false)).toBe('windows-aarch64');
+    expect(getNightlyPlatformKey('windows', 'aarch64', true, false)).toBe(
+      'windows-aarch64-portable',
+    );
+    expect(getNightlyPlatformKey('linux', 'aarch64', false, true)).toBe('linux-aarch64-appimage');
+  });
+  test('an unknown / 32-bit arch yields no nightly (no aarch64 mis-route)', () => {
+    expect(getNightlyPlatformKey('windows', 'i686', false, false)).toBeNull();
+    expect(getNightlyPlatformKey('windows', 'i686', true, false)).toBeNull();
+    expect(getNightlyPlatformKey('linux', 'i686', false, true)).toBeNull();
   });
 });
 

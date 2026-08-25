@@ -257,6 +257,49 @@ describe('sel utilities', () => {
       expect(result.dir).toBe('down');
       expect(result.point.x).toBeGreaterThan(0);
     });
+
+    it("anchors a multi-page selection to the last segment, in that segment's frame", async () => {
+      const { getPosition } = await import('@/utils/sel');
+      // Two PDF page iframes stacked in scrolled mode; the selection starts on
+      // the upper page and ends on the lower one (a cross-page selection).
+      const makeFrame = (top: number) => {
+        const iframe = document.createElement('iframe');
+        document.body.appendChild(iframe);
+        iframe.getBoundingClientRect = () =>
+          ({ top, left: 100, right: 500, bottom: top + 400, width: 400, height: 400 }) as DOMRect;
+        return iframe.contentDocument!;
+      };
+      const upper = makeFrame(0);
+      const lower = makeFrame(404);
+      const rangeIn = (doc: Document, rect: { top: number; bottom: number }) =>
+        ({
+          getClientRects: () => [{ ...rect, left: 20, right: 120 }] as unknown as DOMRectList,
+          commonAncestorContainer: doc.body,
+          // Marks the mock as a Range for getIframeElement, which walks up from
+          // commonAncestorContainer to the owning iframe.
+          collapse: () => {},
+        }) as unknown as Range;
+      const first = rangeIn(upper, { top: 300, bottom: 320 });
+      const last = rangeIn(lower, { top: 50, bottom: 70 });
+      const selection = {
+        key: 'k',
+        text: 'a b',
+        page: 1,
+        index: 0,
+        range: first,
+        segments: [
+          { range: first, index: 0, text: 'a' },
+          { range: last, index: 1, text: 'b' },
+        ],
+      };
+      const rect: Rect = { top: 0, right: 1024, bottom: 768, left: 0 };
+      const result = getPosition(selection, rect, 10);
+      // Below the last line of the LAST segment: 404 (frame) + 70 + 6.
+      expect(result.dir).toBe('down');
+      expect(result.point.y).toBe(480);
+      expect(result.point.x).toBe(170);
+      document.body.innerHTML = '';
+    });
   });
 
   describe('isPointerInsideSelection', () => {
@@ -388,6 +431,21 @@ describe('sel utilities', () => {
 
       const text = getTextFromRange(range);
       expect(text).toBe('First nested deep end');
+
+      document.body.removeChild(container);
+    });
+
+    it('should separate selected paragraphs with newlines', async () => {
+      const { getTextFromRange } = await import('@/utils/sel');
+      const container = document.createElement('div');
+      container.innerHTML = '<p>First paragraph</p><p>Second paragraph</p><p>Third paragraph</p>';
+      document.body.appendChild(container);
+
+      const range = document.createRange();
+      range.setStart(container.children[0]!.firstChild!, 6);
+      range.setEnd(container.children[2]!.firstChild!, 5);
+
+      expect(getTextFromRange(range)).toBe('paragraph\nSecond paragraph\nThird');
 
       document.body.removeChild(container);
     });
@@ -527,6 +585,196 @@ describe('sel utilities', () => {
 
       // The comma is punctuation, so start should not snap
       expect(range.startOffset).toBe(5);
+
+      document.body.removeChild(container);
+    });
+  });
+
+  describe('getWordRangeAt', () => {
+    const withTextNode = (text: string) => {
+      const container = document.createElement('div');
+      const node = document.createTextNode(text);
+      container.appendChild(node);
+      document.body.appendChild(container);
+      return { container, node };
+    };
+
+    it('expands a caret in the middle of a word to the whole word', async () => {
+      const { container, node } = withTextNode('Hello world test');
+      const { getWordRangeAt } = await import('@/utils/sel');
+      // offset 8 = the "r" inside "world"
+      const range = getWordRangeAt(node, 8);
+      expect(range?.toString()).toBe('world');
+      document.body.removeChild(container);
+    });
+
+    it('selects the word when the caret sits at the word start boundary', async () => {
+      const { container, node } = withTextNode('Hello world test');
+      const { getWordRangeAt } = await import('@/utils/sel');
+      const range = getWordRangeAt(node, 6); // start of "world"
+      expect(range?.toString()).toBe('world');
+      document.body.removeChild(container);
+    });
+
+    it('selects the word when the caret sits at the word end boundary', async () => {
+      const { container, node } = withTextNode('Hello world test');
+      const { getWordRangeAt } = await import('@/utils/sel');
+      const range = getWordRangeAt(node, 11); // end of "world"
+      expect(range?.toString()).toBe('world');
+      document.body.removeChild(container);
+    });
+
+    it('selects a CJK word at the caret', async () => {
+      const { container, node } = withTextNode('阅读测试内容');
+      const { getWordRangeAt } = await import('@/utils/sel');
+      const range = getWordRangeAt(node, 1);
+      expect(range && range.toString().length > 0).toBe(true);
+      document.body.removeChild(container);
+    });
+
+    it('returns null on whitespace / non-word positions', async () => {
+      const { container, node } = withTextNode('   ');
+      const { getWordRangeAt } = await import('@/utils/sel');
+      expect(getWordRangeAt(node, 1)).toBeNull();
+      document.body.removeChild(container);
+    });
+
+    it('returns null when the node is not a text node', async () => {
+      const container = document.createElement('div');
+      container.innerHTML = '<span>Hello</span>';
+      document.body.appendChild(container);
+      const { getWordRangeAt } = await import('@/utils/sel');
+      expect(getWordRangeAt(container, 0)).toBeNull();
+      document.body.removeChild(container);
+    });
+  });
+
+  describe('getWordRangeFromPoint', () => {
+    it('resolves the word under the point via caretRangeFromPoint', async () => {
+      const container = document.createElement('div');
+      const node = document.createTextNode('Hello world test');
+      container.appendChild(node);
+      document.body.appendChild(container);
+
+      const caretRange = document.createRange();
+      caretRange.setStart(node, 8);
+      caretRange.collapse(true);
+      const doc = Object.assign(document, {
+        caretRangeFromPoint: () => caretRange,
+      }) as Document & { caretRangeFromPoint: (x: number, y: number) => Range | null };
+
+      const { getWordRangeFromPoint } = await import('@/utils/sel');
+      const range = getWordRangeFromPoint(doc, 50, 50);
+      expect(range?.toString()).toBe('world');
+
+      delete (doc as { caretRangeFromPoint?: unknown }).caretRangeFromPoint;
+      document.body.removeChild(container);
+    });
+
+    it('returns null when no caret resolves at the point', async () => {
+      const doc = Object.assign(document, {
+        caretRangeFromPoint: () => null,
+      }) as Document & { caretRangeFromPoint: (x: number, y: number) => Range | null };
+      const { getWordRangeFromPoint } = await import('@/utils/sel');
+      expect(getWordRangeFromPoint(doc, 0, 0)).toBeNull();
+      delete (doc as { caretRangeFromPoint?: unknown }).caretRangeFromPoint;
+    });
+  });
+
+  describe('trimRangeWhitespaceAroundPoint', () => {
+    it.each([
+      ['world\u00a0', 'world'],
+      ['日本語\u3000', '日本語'],
+      ['שלום\u00a0', 'שלום'],
+    ])('trims Unicode trailing whitespace from %j', async (source, expected) => {
+      const container = document.createElement('div');
+      const node = document.createTextNode(source);
+      container.appendChild(node);
+      document.body.appendChild(container);
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const { trimRangeWhitespaceAroundPoint } = await import('@/utils/sel');
+
+      expect(trimRangeWhitespaceAroundPoint(range, node, 2)).toBe(true);
+      expect(range.toString()).toBe(expected);
+      expect(range.endContainer).toBe(node);
+      expect(range.endOffset).toBe(expected.length);
+
+      document.body.removeChild(container);
+    });
+
+    it('trims across inline text nodes while preserving the native word range', async () => {
+      const container = document.createElement('div');
+      container.innerHTML = 'Hello wor<em>ld</em><span> \u00a0</span>test';
+      document.body.appendChild(container);
+      const first = container.firstChild!;
+      const emphasized = container.querySelector('em')!.firstChild!;
+      const whitespace = container.querySelector('span')!.firstChild!;
+      const range = document.createRange();
+      range.setStart(first, 6);
+      range.setEnd(whitespace, 2);
+      const { trimRangeWhitespaceAroundPoint } = await import('@/utils/sel');
+
+      expect(range.toString()).toBe('world \u00a0');
+      expect(trimRangeWhitespaceAroundPoint(range, emphasized, 1)).toBe(true);
+      expect(range.toString()).toBe('world');
+      expect(range.endContainer).toBe(emphasized);
+      expect(range.endOffset).toBe(2);
+
+      document.body.removeChild(container);
+    });
+
+    it('preserves a whitespace-only range', async () => {
+      const container = document.createElement('div');
+      const node = document.createTextNode(' \u00a0');
+      container.appendChild(node);
+      document.body.appendChild(container);
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const { trimRangeWhitespaceAroundPoint } = await import('@/utils/sel');
+
+      expect(trimRangeWhitespaceAroundPoint(range, node, 1)).toBe(false);
+      expect(range.toString()).toBe(' \u00a0');
+
+      document.body.removeChild(container);
+    });
+
+    it.each([
+      ['\u00a0', 'non-breaking space'],
+      ['\u2009', 'thin space'],
+      ['\u202f', 'narrow no-break space'],
+      ['\u3000', 'ideographic space'],
+    ])('selects only the clicked side of a %s separator', async (separator) => {
+      const container = document.createElement('div');
+      const node = document.createTextNode(`space${separator}between`);
+      container.appendChild(node);
+      document.body.appendChild(container);
+      const { trimRangeWhitespaceAroundPoint } = await import('@/utils/sel');
+
+      const left = document.createRange();
+      left.selectNodeContents(node);
+      expect(trimRangeWhitespaceAroundPoint(left, node, 2)).toBe(true);
+      expect(left.toString()).toBe('space');
+
+      const right = document.createRange();
+      right.selectNodeContents(node);
+      expect(trimRangeWhitespaceAroundPoint(right, node, 8)).toBe(true);
+      expect(right.toString()).toBe('between');
+
+      document.body.removeChild(container);
+    });
+
+    it('does not reinterpret a hyphenated native selection', async () => {
+      const container = document.createElement('div');
+      const node = document.createTextNode('mother-in-law');
+      container.appendChild(node);
+      document.body.appendChild(container);
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const { trimRangeWhitespaceAroundPoint } = await import('@/utils/sel');
+
+      expect(trimRangeWhitespaceAroundPoint(range, node, 8)).toBe(false);
+      expect(range.toString()).toBe('mother-in-law');
 
       document.body.removeChild(container);
     });

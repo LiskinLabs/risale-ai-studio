@@ -15,10 +15,11 @@ import {
   ViewConfig,
   ViewSettings,
   ViewSettingsConfig,
-  WordWiseConfig,
+  WordLensConfig,
 } from '@/types/book';
 import {
   HardcoverSettings,
+  BookOrbitSettings,
   KOSyncSettings,
   LibraryGroupByType,
   LibrarySortByType,
@@ -26,12 +27,18 @@ import {
   ReadwiseSettings,
   SystemSettings,
   WebDAVSettings,
+  GoogleDriveSettings,
+  S3Settings,
+  OneDriveSettings,
+  ICloudSettings,
 } from '@/types/settings';
 import { UserStorageQuota, UserDailyTranslationQuota } from '@/types/quota';
 import { getDefaultMaxBlockSize, getDefaultMaxInlineSize } from '@/utils/config';
 import { stubTranslation as _ } from '@/utils/misc';
 import { DEFAULT_AI_SETTINGS } from './ai/constants';
 import { DEFAULT_ANNOTATION_TOOLBAR_ITEMS } from '@/utils/annotationToolbar';
+import { DEFAULT_SENTENCE_GAP_SEC } from './tts/EdgeTTSClient';
+import { DEFAULT_PARAGRAPH_GAP_SEC } from './tts/TTSController';
 
 export const DATA_SUBDIR = 'Readest';
 export const LOCAL_BOOKS_SUBDIR = `${DATA_SUBDIR}/Books`;
@@ -53,6 +60,7 @@ export const SUPPORTED_BOOK_EXTS = [
   'cbz',
   'pdf',
   'txt',
+  'md',
 ];
 export const BOOK_ACCEPT_FORMATS = SUPPORTED_BOOK_EXTS.map((ext) => `.${ext}`).join(', ');
 export const BOOK_UNGROUPED_NAME = '';
@@ -69,8 +77,23 @@ export const DEFAULT_KOSYNC_SETTINGS = {
   deviceName: '',
   checksumMethod: 'binary',
   strategy: 'prompt',
+  sendMetadata: false,
   enabled: false,
 } as KOSyncSettings;
+
+export const DEFAULT_BOOKORBIT_SETTINGS = {
+  enabled: false,
+  serverUrl: '',
+  username: '',
+  userkey: '',
+  deviceId: '',
+  deviceName: '',
+  strategy: 'prompt',
+  syncProgress: true,
+  syncNotes: true,
+  syncStats: true,
+  syncBookStates: true,
+} as BookOrbitSettings;
 
 export const READWISE_API_BASE_URL = 'https://readwise.io/api/v2';
 
@@ -78,6 +101,7 @@ export const DEFAULT_READWISE_SETTINGS = {
   enabled: false,
   accessToken: '',
   lastSyncedAt: 0,
+  includeCoverImage: true,
 } as ReadwiseSettings;
 
 export const DEFAULT_HARDCOVER_SETTINGS = {
@@ -101,22 +125,72 @@ export const DEFAULT_WEBDAV_SETTINGS = {
   lastSyncedAt: 0,
 } as WebDAVSettings;
 
+export const DEFAULT_GOOGLE_DRIVE_SETTINGS = {
+  enabled: false,
+  syncProgress: true,
+  syncNotes: true,
+  syncBooks: false,
+  strategy: 'silent',
+  deviceId: '',
+  lastSyncedAt: 0,
+} as GoogleDriveSettings;
+
+export const DEFAULT_S3_SETTINGS = {
+  enabled: false,
+  endpoint: '',
+  region: 'auto',
+  bucket: '',
+  accessKeyId: '',
+  secretAccessKey: '',
+  syncProgress: true,
+  syncNotes: true,
+  syncBooks: false,
+  strategy: 'silent',
+  deviceId: '',
+  lastSyncedAt: 0,
+} as S3Settings;
+
+export const DEFAULT_ONEDRIVE_SETTINGS = {
+  enabled: false,
+  syncProgress: true,
+  syncNotes: true,
+  syncBooks: false,
+  strategy: 'silent',
+  deviceId: '',
+  lastSyncedAt: 0,
+} as OneDriveSettings;
+
+export const DEFAULT_ICLOUD_SETTINGS = {
+  enabled: false,
+  syncProgress: true,
+  syncNotes: true,
+  syncBooks: false,
+  strategy: 'silent',
+  deviceId: '',
+  lastSyncedAt: 0,
+} as ICloudSettings;
+
 export const DEFAULT_SYSTEM_SETTINGS: Partial<SystemSettings> = {
   keepLogin: false,
-  autoUpload: true,
   alwaysOnTop: false,
   openBookInNewWindow: true,
   alwaysShowStatusBar: false,
-  alwaysInForeground: false,
   autoCheckUpdates: true,
   updateChannel: 'stable',
   screenWakeLock: false,
+  autohideCursor: true,
   screenBrightness: -1, // -1~100, -1 for system default
   autoScreenBrightness: true,
   swipeBrightnessGesture: true,
   hardwarePageTurner: {
     enabled: false,
-    bindings: { pagePrev: null, pageNext: null, sectionPrev: null, sectionNext: null },
+    bindings: {
+      pagePrev: null,
+      pageNext: null,
+      sectionPrev: null,
+      sectionNext: null,
+      refresh: null,
+    },
   },
   openLastBooks: false,
   lastOpenBooks: [],
@@ -127,11 +201,15 @@ export const DEFAULT_SYSTEM_SETTINGS: Partial<SystemSettings> = {
   librarySortBy: LibrarySortByType.Updated,
   librarySortAscending: false,
   librarySortByAuto: true,
-  librarySortBy2: 'none',
+  libraryThenSortBy: 'none',
+  libraryThenSortAscending: true,
   libraryGroupBy: LibraryGroupByType.Group,
   libraryCoverFit: 'crop',
   libraryAutoColumns: true,
   libraryColumns: 6,
+  librarySkeuomorphicCovers: false,
+  libraryHideCovers: false,
+  libraryRecentShelfEnabled: false,
 
   metadataSeriesCollapsed: false,
   metadataOthersCollapsed: false,
@@ -149,9 +227,14 @@ export const DEFAULT_SYSTEM_SETTINGS: Partial<SystemSettings> = {
   },
 
   kosync: DEFAULT_KOSYNC_SETTINGS,
+  bookorbit: DEFAULT_BOOKORBIT_SETTINGS,
   readwise: DEFAULT_READWISE_SETTINGS,
   hardcover: DEFAULT_HARDCOVER_SETTINGS,
   webdav: DEFAULT_WEBDAV_SETTINGS,
+  googleDrive: DEFAULT_GOOGLE_DRIVE_SETTINGS,
+  s3: DEFAULT_S3_SETTINGS,
+  onedrive: DEFAULT_ONEDRIVE_SETTINGS,
+  icloud: DEFAULT_ICLOUD_SETTINGS,
   aiSettings: DEFAULT_AI_SETTINGS,
 
   lastSyncedAtBooks: 0,
@@ -166,12 +249,16 @@ export const DEFAULT_SYSTEM_SETTINGS: Partial<SystemSettings> = {
     font: true,
     texture: true,
     opds_catalog: true,
+    abs_server: true,
     settings: true,
   },
 };
 
 export const DEFAULT_MOBILE_SYSTEM_SETTINGS: Partial<SystemSettings> = {
   libraryColumns: 3,
+  // Import files opened via the system "Open with" chooser into the library by
+  // default so they persist and sync, instead of opening them transiently.
+  autoImportBooksOnOpen: true,
 };
 
 export const HIGHLIGHT_COLOR_HEX: Record<HighlightColor, string> = {
@@ -196,10 +283,9 @@ export const DEFAULT_READSETTINGS: ReadSettings = {
   notebookWidth: '25%',
   isNotebookPinned: false,
   notebookActiveTab: 'notes',
-  autohideCursor: true,
   translationProvider: 'deepl',
   translateTargetLang: 'EN',
-  wordWiseAutoDownload: true,
+  wordLensAutoDownload: true,
 
   customThemes: [],
   highlightStyle: 'highlight',
@@ -241,6 +327,8 @@ export const DEFAULT_BOOK_LAYOUT: BookLayout = {
   compactMarginRightPx: 16,
   gapPercent: 5,
   scrolled: false,
+  scrolledDirection: 'vertical',
+  webtoonMode: false,
   noContinuousScroll: false,
   disableClick: false,
   disableSwipe: false,
@@ -257,6 +345,8 @@ export const DEFAULT_BOOK_LAYOUT: BookLayout = {
   scrollingOverlap: 0,
   allowScript: false,
   hideScrollbar: false,
+  autoScrollSpeed: 100,
+  autoScrollRunning: false,
 };
 
 export const DEFAULT_BOOK_LANGUAGE: BookLanguage = {
@@ -293,6 +383,7 @@ export const DEFAULT_BOOK_STYLE: BookStyle = {
   keepCoverSpread: true,
   invertImgColorInDark: false,
   applyThemeToPDF: false,
+  contrast: 100,
 };
 
 export const DEFAULT_MOBILE_VIEW_SETTINGS: Partial<ViewSettings> = {
@@ -337,17 +428,17 @@ export const DEFAULT_VIEW_CONFIG: ViewConfig = {
   showRemainingTime: false,
   showRemainingPages: false,
   showProgressInfo: true,
+  showStickyProgressBar: false,
   showCurrentTime: false,
   showCurrentBatteryStatus: false,
   showBatteryPercentage: true,
   use24HourClock: false,
-  tapToToggleFooter: false,
   showPaginationButtons: false,
   progressStyle: 'fraction',
   referencePageCount: 0,
-  progressInfoMode: 'all',
 
   animated: false,
+  pageTurnStyle: 'push',
   isEink: false,
   isColorEink: false,
 
@@ -362,11 +453,15 @@ export const DEFAULT_VIEW_CONFIG: ViewConfig = {
 
 export const DEFAULT_TTS_CONFIG: TTSConfig = {
   ttsRate: 1.3,
+  ttsSentenceGap: DEFAULT_SENTENCE_GAP_SEC,
+  ttsParagraphGap: DEFAULT_PARAGRAPH_GAP_SEC,
   ttsVoice: '',
+  ttsUseNarration: true,
   ttsLocation: '',
-  showTTSBar: false,
   ttsHighlightOptions: { style: 'highlight', color: '#808080' },
+  ttsHighlightGranularity: 'word',
   ttsMediaMetadata: 'sentence',
+  ttsPlayerStyle: 'full',
 };
 
 export const DEFAULT_TRANSLATOR_CONFIG: TranslatorConfig = {
@@ -381,6 +476,8 @@ export const DEFAULT_NOTE_EXPORT_CONFIG: NoteExportConfig = {
   includeTitle: true,
   includeAuthor: true,
   includeDate: true,
+  // Off by default: including a cover publishes it to public storage.
+  includeCoverImage: false,
   includeChapterTitles: true,
   includeQuotes: true,
   includeNotes: true,
@@ -395,6 +492,9 @@ export const DEFAULT_NOTE_EXPORT_CONFIG: NoteExportConfig = {
   useCustomTemplate: false,
   customTemplate: '',
   exportAsPlainText: false,
+  exportFormat: 'markdown',
+  excludedColors: [],
+  excludedStyles: [],
 };
 
 export const DEFAULT_ANNOTATOR_CONFIG: AnnotatorConfig = {
@@ -405,10 +505,12 @@ export const DEFAULT_ANNOTATOR_CONFIG: AnnotatorConfig = {
   noteExportConfig: DEFAULT_NOTE_EXPORT_CONFIG,
 };
 
-export const DEFAULT_WORD_WISE_CONFIG: WordWiseConfig = {
-  wordWiseEnabled: false,
-  wordWiseLevel: 3,
-  wordWiseHintLang: '',
+export const DEFAULT_WORD_LENS_CONFIG: WordLensConfig = {
+  wordLensEnabled: false,
+  wordLensLevel: 3,
+  wordLensHintLang: '',
+  wordLensGlossFontSize: 0.5,
+  wordLensGlossColor: '',
 };
 
 export const DEFAULT_SCREEN_CONFIG: ScreenConfig = {
@@ -417,9 +519,12 @@ export const DEFAULT_SCREEN_CONFIG: ScreenConfig = {
 
 export const DEFAULT_BOOK_SEARCH_CONFIG: BookSearchConfig = {
   scope: 'book',
+  mode: 'contains',
   matchCase: false,
-  matchWholeWords: false,
   matchDiacritics: false,
+  nearbyWords: 10,
+  // kept for sync wire back-compat with pre-v3 clients (mirrors mode === 'whole-words')
+  matchWholeWords: false,
 };
 
 export const DEFAULT_VIEW_SETTINGS_CONFIG: ViewSettingsConfig = {
@@ -816,6 +921,9 @@ export const READEST_UPDATER_PUBKEY =
   'dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEJFMEQ1QjE2OEU1NEIzNTEKUldSUnMxU09GbHNOdmpEaWFMT1crRFpEV2VORzQ2MklxaFc0M1R0ci9xY2c1bENXS0xhM1R1L2sK';
 
 export const READEST_PUBLIC_STORAGE_BASE_URL = 'https://storage.readest.com';
+// Custom domain serving the readest-public bucket; durable media assets
+// (e.g. published book covers) are linked through this host.
+export const READEST_PUBLIC_ASSETS_BASE_URL = 'https://assets.readest.com';
 
 export const READEST_OPDS_USER_AGENT = 'Readest/1.0 (OPDS Browser)';
 
@@ -827,6 +935,16 @@ export const CHECK_UPDATE_INTERVAL_SEC = 24 * 60 * 60;
 export const MAX_ZOOM_LEVEL = 500;
 export const MIN_ZOOM_LEVEL = 50;
 export const ZOOM_STEP = 10;
+
+export const MAX_CONTRAST = 300;
+export const MIN_CONTRAST = 50;
+export const CONTRAST_STEP = 10;
+
+// Auto Scroll (#4998): speed is stored as a percentage of the base velocity.
+export const AUTO_SCROLL_BASE_PX_PER_SEC = 20;
+export const MAX_AUTO_SCROLL_SPEED = 500;
+export const MIN_AUTO_SCROLL_SPEED = 25;
+export const AUTO_SCROLL_SPEED_STEP = 25;
 
 export const SHOW_UNREAD_STATUS_BADGE = false;
 
@@ -939,6 +1057,7 @@ export const TRANSLATED_LANGS = {
   ro: 'Română',
   hu: 'Magyar',
   uz: 'Oʻzbek',
+  ka: 'ქართული',
 };
 
 export const TRANSLATOR_LANGS: Record<string, string> = {
@@ -956,6 +1075,7 @@ export const TRANSLATOR_LANGS: Record<string, string> = {
   sl: 'Slovenščina',
   sk: 'Slovenčina',
   fa: 'فارسی',
+  ur: 'اردو',
 };
 
 export const SUPPORTED_LANGS: Record<string, string> = { ...TRANSLATED_LANGS, zh: '中文' };

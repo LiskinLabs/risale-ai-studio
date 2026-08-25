@@ -45,6 +45,23 @@ export interface SectionItem {
 
   loadText?: () => Promise<string | null>;
   createDocument: () => Promise<Document>;
+
+  // EPUB 3 Media Overlays: the manifest item of this section's SMIL file, or
+  // null when the section has no recorded narration. Populated by foliate's
+  // EPUB parser from the spine item's `media-overlay` attribute.
+  mediaOverlay?: { href: string; id: string } | null;
+}
+
+// A Calibre custom column embedded in the OPF as "user metadata"; parsed by
+// foliate-js's getMetadata (see getCalibreUserMetadata in epub.js). `value`
+// is an array for multi-value columns, `extra` is the series index for
+// datatype 'series'.
+export interface CalibreCustomColumn {
+  label: string;
+  name: string;
+  datatype: string;
+  value: string | number | boolean | string[];
+  extra?: number;
 }
 
 export type BookMetadata = {
@@ -56,7 +73,7 @@ export type BookMetadata = {
   publisher?: string;
   published?: string;
   description?: string;
-  subject?: string | string[] | Contributor;
+  subject?: string | string[] | Contributor | Contributor[];
   identifier?: string;
   isbn?: string;
   altIdentifier?: string | string[] | Identifier;
@@ -73,6 +90,20 @@ export type BookMetadata = {
   coverImageFile?: string;
   coverImageUrl?: string;
   coverImageBlobUrl?: string;
+
+  calibreColumns?: CalibreCustomColumn[];
+  feedUrl?: string;
+
+  // Audiobookshelf mirrors. An ABS stub is fileless: its identity is the
+  // synthetic `abs://<serverId>/<itemId>` filePath, and the library badge is
+  // drawn from duration / media type / episode count. None of those have a
+  // cloud `books` column (and the push strips filePath as device-local), so
+  // they ride across inside this synced metadata payload, exactly as a feed
+  // book carries `feedUrl`. Built and read back in src/utils/audiobook.ts.
+  absSource?: string;
+  absMediaType?: 'podcast';
+  absEpisodeCount?: number;
+  absDuration?: number;
 };
 
 export interface BookDoc {
@@ -89,6 +120,21 @@ export interface BookDoc {
   transformTarget?: EventTarget;
   splitTOCHref(href: string): Array<string | number>;
   getCover(): Promise<Blob | null>;
+  // Present on formats that carry a real spine (EPUB); absent for the ones
+  // foliate-js gives synthetic per-index CFIs. Mirrors `view.resolveCFI`.
+  resolveCFI?(cfi: string): { index: number; anchor?: (doc: Document) => Range | number } | null;
+  // Formats backed by live parser state must be released explicitly: a PDF
+  // book holds a pdf.js document whose dedicated worker survives GC, so
+  // dropping the reference leaks the whole parsed file (#5387).
+  destroy?(): void | Promise<void>;
+
+  // Container access, present on EPUB. Recorded narration needs both: the SMIL
+  // files as text, the audio as blobs. Hrefs are zip paths, as resolved on
+  // manifest items.
+  loadText?(href: string): Promise<string | null>;
+  loadBlob?(href: string): Promise<Blob>;
+  // EPUB 3 `media:*` package metadata, used to name the narrator.
+  media?: { narrator?: string; duration?: number };
 }
 
 export const EXTS: Record<BookFormat, string> = {
@@ -102,6 +148,10 @@ export const EXTS: Record<BookFormat, string> = {
   FBZ: 'fbz',
   TXT: 'txt',
   MD: 'md',
+  // ABS books stream from the server and never have a real on-disk file, so
+  // this extension is never used to write or look up a file. It exists only
+  // to satisfy the Record<BookFormat, string> exhaustiveness check.
+  ABS: 'abs',
 };
 
 export const MIMETYPES: Record<BookFormat, string[]> = {
@@ -115,6 +165,8 @@ export const MIMETYPES: Record<BookFormat, string[]> = {
   FBZ: ['application/x-zip-compressed-fb2', 'application/zip'],
   TXT: ['text/plain'],
   MD: ['text/markdown', 'text/x-markdown'],
+  // Never matched against a real download; see the EXTS.ABS comment above.
+  ABS: ['application/vnd.audiobookshelf'],
 };
 
 export interface DocumentLoaderOptions {
@@ -328,7 +380,23 @@ export class DocumentLoader {
   }
 
   private isTxt(): boolean {
-    return this.file.type === 'text/plain' || this.file.name.endsWith(`.${EXTS.TXT}`);
+    // Tolerate MIME params (text/plain;charset=utf-8), uppercase extensions
+    // (BOOK.TXT), and a nameless Blob — otherwise a TXT can slip onto the
+    // non-text path and yield a null book.
+    return (
+      this.file.type.startsWith('text/plain') ||
+      (this.file.name?.toLowerCase().endsWith(`.${EXTS.TXT}`) ?? false)
+    );
+  }
+
+  private isMd(): boolean {
+    const name = this.file.name?.toLowerCase() ?? '';
+    return (
+      this.file.type === 'text/markdown' ||
+      this.file.type === 'text/x-markdown' ||
+      name.endsWith(`.${EXTS.MD}`) ||
+      name.endsWith('.markdown')
+    );
   }
 
   public async open(): Promise<{ book: BookDoc; format: BookFormat }> {
@@ -343,6 +411,13 @@ export class DocumentLoader {
       // conversion the import path runs) and parse that. The managed library
       // stores the already-converted EPUB, but the Android "Open with" transient
       // path points the book at the original .txt, so it reaches us unconverted.
+      // Markdown is rendered to HTML at runtime (no EPUB conversion). Check
+      // this BEFORE isTxt() — a .md served as text/plain would otherwise be
+      // grabbed by the TXT->EPUB path above.
+      if (this.isMd()) {
+        const { makeMarkdownBook } = await import('@/utils/md');
+        return { book: await makeMarkdownBook(this.file), format: 'MD' };
+      }
       if (this.isTxt()) {
         const { TxtToEpubConverter } = await import('@/utils/txt');
         const { file: epubFile } = await new TxtToEpubConverter().convert({ file: this.file });
@@ -429,7 +504,14 @@ export const getDirection = (doc: Document) => {
     }
   }
   const vertical = writingMode === 'vertical-rl' || writingMode === 'vertical-lr';
-  const rtl = doc.body.dir === 'rtl' || direction === 'rtl' || doc.documentElement.dir === 'rtl';
+  // `vertical-rl` (Japanese/Chinese vertical) advances columns right-to-left even
+  // though its computed `direction` stays `ltr`, so the writing mode itself marks
+  // it RTL. Without this the reading ruler and page turns run backwards (#4865).
+  const rtl =
+    writingMode === 'vertical-rl' ||
+    doc.body.dir === 'rtl' ||
+    direction === 'rtl' ||
+    doc.documentElement.dir === 'rtl';
   return { vertical, rtl };
 };
 

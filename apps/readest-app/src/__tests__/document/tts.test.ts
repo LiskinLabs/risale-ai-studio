@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { textWalker } from 'foliate-js/text-walker.js';
 import { TTS } from 'foliate-js/tts.js';
-import { createRejectFilter } from '@/utils/node';
+import { createTTSNodeFilter } from '@/services/tts/nodeFilter';
+import { filterSSMLWithLang, parseSSMLMarks } from '@/utils/ssml';
 
 const createHTMLDoc = (bodyHTML: string, attrs: Record<string, string> = {}): Document => {
   const parser = new DOMParser();
@@ -33,20 +34,8 @@ const stripTags = (ssml: string): string => ssml.replace(/<[^>]+\/?>/g, '').trim
 
 const highlight = vi.fn();
 
-/** Node filter mirroring the footnote rules TTSController passes to TTS. */
-const ttsNodeFilter = createRejectFilter({
-  tags: ['rt', 'canvas', 'br'],
-  classes: [
-    'annotationLayer',
-    'epubtype-footnote',
-    'duokan-footnote-content',
-    'duokan-footnote-item',
-  ],
-  attributeTokens: [
-    { tag: 'aside', attribute: 'epub:type', tokens: ['footnote', 'endnote', 'note', 'rearnote'] },
-  ],
-  contents: [{ tag: 'a', content: /^[\[\(]?[\*\d]+[\)\]]?$/ }],
-});
+/** The exact filter TTSController passes to TTS. */
+const ttsNodeFilter = createTTSNodeFilter();
 
 describe('TTS', () => {
   describe('plain HTML document', () => {
@@ -356,6 +345,158 @@ describe('TTS', () => {
     it('should not reject an element missing the attribute', () => {
       const aside = document.createElement('aside');
       expect(ttsNodeFilter(aside)).toBe(NodeFilter.FILTER_SKIP);
+    });
+  });
+
+  describe('ruby (furigana) readings', () => {
+    const speak = (bodyHTML: string): string => {
+      const doc = createHTMLDoc(bodyHTML, { lang: 'ja' });
+      const tts = new TTS(doc, textWalker, ttsNodeFilter, highlight, 'sentence');
+      return stripTags(tts.start()!);
+    };
+
+    it('speaks a kana reading instead of the bare-text ruby base', () => {
+      expect(speak('<p><ruby>数多<rt>あまた</rt></ruby>の星</p>')).toBe('あまたの星');
+    });
+
+    it('speaks a kana reading instead of an <rb> ruby base', () => {
+      expect(speak('<p><ruby><rb>数多</rb><rt>あまた</rt></ruby>の星</p>')).toBe('あまたの星');
+    });
+
+    it('speaks an author-assigned katakana reading', () => {
+      expect(speak('<p><ruby>神聖文字<rt>ヒエログリフ</rt></ruby>を読む</p>')).toBe(
+        'ヒエログリフを読む',
+      );
+    });
+
+    it('speaks a gaiji image base through its reading', () => {
+      expect(
+        speak(
+          '<p><ruby><rb><img class="gaiji" src="00007.gif" alt="喰"/></rb><rt>く</rt></ruby>い殺され</p>',
+        ),
+      ).toBe('くい殺され');
+    });
+
+    it('keeps <rp> fallback parentheses out of the speech', () => {
+      expect(speak('<p><ruby>数多<rp>(</rp><rt>あまた</rt><rp>)</rp></ruby>の星</p>')).toBe(
+        'あまたの星',
+      );
+    });
+
+    it('keeps speaking the base when the ruby is an emphasis dot', () => {
+      expect(speak('<p><ruby>本当<rt>・・</rt></ruby>に読む</p>')).toBe('本当に読む');
+    });
+
+    it('keeps speaking the base for a pinyin ruby', () => {
+      expect(speak('<p><ruby>学生<rt>xuéshēng</rt></ruby></p>')).toBe('学生');
+    });
+
+    it('keeps speaking the base under an injected WordLens gloss', () => {
+      expect(
+        speak(
+          '<p><ruby class="wl-gloss" cfi-skip="">辞書<rt cfi-inert="">じしょ</rt></ruby>を引く</p>',
+        ),
+      ).toBe('辞書を引く');
+    });
+
+    it('anchors the highlight range on the spoken reading', () => {
+      const doc = createHTMLDoc('<p><ruby>数多<rt>あまた</rt></ruby>の星</p>', { lang: 'ja' });
+      const tts = new TTS(doc, textWalker, ttsNodeFilter, highlight, 'sentence');
+      tts.start();
+      // The single sentence mark spans the reading through the trailing text,
+      // never the muted kanji base.
+      const range = tts.getLastRange() ?? tts.setMark('0');
+      expect(range).toBeTruthy();
+      expect(range!.toString()).not.toContain('数多');
+      expect(range!.startContainer.parentElement?.tagName.toLowerCase()).toBe('rt');
+    });
+  });
+
+  describe('from() selection start', () => {
+    // A paragraph whose whole text is one text node (one <span>), so every
+    // sentence after the first is a mid-node sub-range — the case where the
+    // annotation "Speak from selection" misfired.
+    const SENTENCE_DOC =
+      '<p><span>First sentence here. Those immortals are going crazy. Last one.</span></p>';
+
+    const makeWordRange = (doc: Document, word: string): Range => {
+      const textNode = doc.querySelector('span')!.firstChild as Text;
+      const start = textNode.data.indexOf(word);
+      const range = doc.createRange();
+      range.setStart(textNode, start);
+      range.setEnd(textNode, start + word.length);
+      return range;
+    };
+
+    it('starts at the sentence that contains a mid-sentence selection', () => {
+      const doc = createHTMLDoc(SENTENCE_DOC, { lang: 'en' });
+      const tts = new TTS(doc, textWalker, undefined, highlight, 'sentence');
+      tts.start();
+      const ssml = tts.from(makeWordRange(doc, 'immortals'));
+
+      expect(ssml).toBeTruthy();
+      const text = stripTags(ssml!);
+      // starts at the selected word's own sentence (not the next one), and the
+      // earlier sentence is dropped
+      expect(text.startsWith('Those immortals')).toBe(true);
+      expect(text).not.toContain('First sentence here');
+    });
+
+    it('starts at the sentence when the first word of it is selected', () => {
+      const doc = createHTMLDoc(SENTENCE_DOC, { lang: 'en' });
+      const tts = new TTS(doc, textWalker, undefined, highlight, 'sentence');
+      tts.start();
+      const ssml = tts.from(makeWordRange(doc, 'Those'));
+
+      expect(ssml).toBeTruthy();
+      expect(stripTags(ssml!).startsWith('Those immortals')).toBe(true);
+    });
+
+    it('starts at the last sentence when a word in it is selected', () => {
+      const doc = createHTMLDoc(SENTENCE_DOC, { lang: 'en' });
+      const tts = new TTS(doc, textWalker, undefined, highlight, 'sentence');
+      tts.start();
+      const ssml = tts.from(makeWordRange(doc, 'Last'));
+
+      expect(ssml).toBeTruthy();
+      const text = stripTags(ssml!);
+      expect(text.startsWith('Last one')).toBe(true);
+      expect(text).not.toContain('immortals');
+    });
+  });
+
+  describe('translations added during playback', () => {
+    it('keeps a mark for the first translated sentence after filtering out source text', () => {
+      const doc = createHTMLDoc(
+        '<p>Source sentence.<font lang="fr">Phrase traduite une. Phrase traduite deux.</font></p>',
+        { lang: 'en' },
+      );
+      const tts = new TTS(doc, textWalker, undefined, highlight, 'sentence');
+
+      const translatedSSML = filterSSMLWithLang(tts.start()!, 'fr');
+      const { plainText, marks } = parseSSMLMarks(translatedSSML);
+
+      expect(plainText).toContain('Phrase traduite une');
+      expect(marks).not.toHaveLength(0);
+      expect(marks[0]?.offset).toBe(0);
+    });
+
+    it('keeps the first sentence when a translated paragraph contains multiple sentences', () => {
+      const doc = createHTMLDoc(
+        '<p>Source sentence.<font lang="ru">О все воинство небесное! О земля! Что дальше?</font></p>',
+        { lang: 'en' },
+      );
+      const tts = new TTS(doc, textWalker, undefined, highlight, 'sentence');
+
+      const translatedSSML = filterSSMLWithLang(tts.start()!, 'ru');
+      const { marks } = parseSSMLMarks(translatedSSML);
+
+      expect(marks.map(({ text }) => text)).toEqual([
+        'О все воинство небесное! ',
+        'О земля! ',
+        'Что дальше?',
+      ]);
+      expect(marks[0]?.offset).toBe(0);
     });
   });
 

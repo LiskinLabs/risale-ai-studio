@@ -1,14 +1,15 @@
 import { useCallback, useRef, useState } from 'react';
 import { BookNote } from '@/types/book';
-import { Point, TextSelection } from '@/utils/sel';
+import { NOTE_PREFIX } from '@/types/view';
+import { TextSelection } from '@/utils/sel';
 import { useEnv } from '@/context/EnvContext';
 import { useReaderStore } from '@/store/readerStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useBookDataStore } from '@/store/bookDataStore';
 import {
-  buildRangeFromPoints,
   getHandlePositionsFromRange as getHandlePositionsForBook,
   HandlePositions,
+  removeBookNoteOverlays,
 } from '../utils/annotatorUtil';
 
 interface UseAnnotationEditorProps {
@@ -39,13 +40,11 @@ export const useAnnotationEditor = ({
     [bookKey],
   );
 
-  const handleAnnotationRangeChange = useCallback(
-    async (startPoint: Point, endPoint: Point, isVertical: boolean, isDragging: boolean) => {
+  // Apply an already-built range (anchored at the non-dragged end in the editor
+  // component so it survives a corner auto page-turn) to the edited annotation.
+  const applyAnnotationRange = useCallback(
+    async (newRange: Range, targetIndex: number, isVertical: boolean, isDragging: boolean) => {
       if (!editingAnnotationRef.current || !view) return;
-
-      const built = buildRangeFromPoints(view, startPoint, endPoint);
-      if (!built) return;
-      const { range: newRange, index: targetIndex } = built;
 
       const newPositions = getHandlePositionsFromRange(newRange, isVertical);
       if (newPositions) {
@@ -72,9 +71,19 @@ export const useAnnotationEditor = ({
             updatedAt: Date.now(),
           };
 
+          // Both overlays of a unified record are keyed by its cfi, so a moved
+          // range must tear down *both* — dropping only the highlight left the
+          // note bubble stranded at the old anchor while a new one was drawn at
+          // the new one, so one highlight showed several note markers (#5538).
           const views = getViewsById(bookKey.split('-')[0]!);
-          views.forEach((v) => v?.addAnnotation(editingAnnotationRef.current, true));
+          const hasNote = !!existingAnnotation.note?.trim();
+          views.forEach((v) => removeBookNoteOverlays(v, editingAnnotationRef.current));
           views.forEach((v) => v?.addAnnotation(updatedAnnotation));
+          if (hasNote) {
+            views.forEach((v) =>
+              v?.addAnnotation({ ...updatedAnnotation, value: `${NOTE_PREFIX}${newCfi}` }),
+            );
+          }
           editingAnnotationRef.current = updatedAnnotation;
 
           if (!isDragging) {
@@ -105,6 +114,6 @@ export const useAnnotationEditor = ({
     handlePositions,
     setHandlePositions,
     getHandlePositionsFromRange,
-    handleAnnotationRangeChange,
+    applyAnnotationRange,
   };
 };

@@ -56,6 +56,28 @@ describe('TTS navigation shortcuts', () => {
   });
 });
 
+describe('Book start/end shortcuts (#5660)', () => {
+  it('binds Home to the start of the book and End to the end of the book', async () => {
+    const shortcuts = await getDefaults();
+    expect(shortcuts.onGoBookStart.keys).toEqual(['Home']);
+    expect(shortcuts.onGoBookEnd.keys).toEqual(['End']);
+  });
+
+  it('lists both under Navigation so they show up in the shortcuts help', async () => {
+    const shortcuts = await getDefaults();
+    expect(shortcuts.onGoBookStart.section).toBe('Navigation');
+    expect(shortcuts.onGoBookEnd.section).toBe('Navigation');
+  });
+});
+
+describe('Proofread selection shortcut (#4717)', () => {
+  it('binds alt+p alongside ctrl+p/cmd+p so it avoids the print conflict', async () => {
+    const shortcuts = await getDefaults();
+    expect(shortcuts.onProofreadSelection.keys).toContain('alt+p');
+    expect(shortcuts.onProofreadSelection.keys).toEqual(['ctrl+p', 'cmd+p', 'alt+p']);
+  });
+});
+
 describe('No identical keybinding lists across actions (#3675)', () => {
   // Pre-existing pairs where two actions intentionally share the exact
   // same key list — both handlers guard on runtime context.

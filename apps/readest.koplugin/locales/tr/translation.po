@@ -68,6 +68,9 @@ msgstr "Artan"
 msgid "Actions"
 msgstr "İşlemler"
 
+msgid "Download all books"
+msgstr "Tüm kitapları indir"
+
 msgid "Rescan library"
 msgstr "Kütüphaneyi yeniden tara"
 
@@ -134,6 +137,21 @@ msgstr "Kapak indirilemedi."
 msgid "Could not delete the file."
 msgstr "Dosya silinemedi."
 
+msgid "No books to download."
+msgstr "İndirilecek kitap yok."
+
+msgid "Downloading %1 of %2…"
+msgstr "%2 kitaptan %1. indiriliyor…"
+
+msgid "Download cancelled. %1 of %2 downloaded."
+msgstr "İndirme iptal edildi. %2 kitaptan %1 tanesi indirildi."
+
+msgid "Downloaded %1 of %2 (skipped %3)."
+msgstr "%2 kitaptan %1 tanesi indirildi (%3 tanesi atlandı)."
+
+msgid "Downloaded %1 of %2."
+msgstr "%2 kitaptan %1 tanesi indirildi."
+
 msgid "Removing from cloud…"
 msgstr "Buluttan kaldırılıyor…"
 
@@ -172,6 +190,9 @@ msgstr "Depolama kotası aşıldı."
 
 msgid "Upload failed."
 msgstr "Yükleme başarısız."
+
+msgid "Send to nearby Readest devices"
+msgstr "Yakındaki Readest cihazlarına gönder"
 
 msgid "Download Book"
 msgstr "Kitabı indir"
@@ -215,8 +236,11 @@ msgstr "Bu cihazdan Readest açıklamalarını gönder"
 msgid "Pull readest annotations from other devices"
 msgstr "Diğer cihazlardan Readest açıklamalarını al"
 
-msgid "Add to Readest"
-msgstr "Readest'e ekle"
+msgid "Full sync all readest annotations"
+msgstr "Tüm Readest açıklamalarını tam senkronize et"
+
+msgid "Add to Readest library"
+msgstr "Readest kitaplığına ekle"
 
 msgid "Sign in to Readest first."
 msgstr "Önce Readest'e giriş yapın."
@@ -239,6 +263,12 @@ msgstr "Zaten Readest kütüphanenizde:"
 msgid "Added to Readest:"
 msgstr "Readest'e eklendi:"
 
+msgid "No book is open"
+msgstr "Açık kitap yok"
+
+msgid "Uploaded to Readest:"
+msgstr "Readest'e yüklendi:"
+
 msgid "Log in Readest Account"
 msgstr "Readest hesabına giriş yap"
 
@@ -251,11 +281,23 @@ msgstr "Otomatik senkronizasyon"
 msgid "Readest library"
 msgstr "Readest kütüphanesi"
 
+msgid "Push stats now"
+msgstr "İstatistikleri şimdi gönder"
+
+msgid "Pull stats now"
+msgstr "İstatistikleri şimdi al"
+
 msgid "Push books now"
 msgstr "Kitapları şimdi gönder"
 
 msgid "Pull books now"
 msgstr "Kitapları şimdi al"
+
+msgid "Receive via LocalSend"
+msgstr "LocalSend ile al"
+
+msgid "Upload current book to Readest"
+msgstr "Geçerli kitabı Readest'e yükle"
 
 msgid "Push reading progress now"
 msgstr "Okuma ilerlemesini şimdi gönder"
@@ -287,9 +329,6 @@ msgstr "Önce giriş yapın"
 msgid "Please configure Readest settings first"
 msgstr "Önce Readest ayarlarını yapılandırın"
 
-msgid "No book is open"
-msgstr "Açık kitap yok"
-
 msgid "(none)"
 msgstr "(yok)"
 
@@ -316,6 +355,90 @@ msgstr "Kitaplar senkronize edildi"
 
 msgid "Books sync failed"
 msgstr "Kitap senkronizasyonu başarısız"
+
+msgid "Set a Readest download folder or a KOReader home folder first."
+msgstr "Önce bir Readest indirme klasörü veya bir KOReader ana klasörü ayarlayın."
+
+msgid "LocalSend error: could not find a free port."
+msgstr "LocalSend hatası: boş bağlantı noktası bulunamadı."
+
+msgid "LocalSend failed to start."
+msgstr "LocalSend başlatılamadı."
+
+msgid "Starting LocalSend…"
+msgstr "LocalSend başlatılıyor…"
+
+msgid "LocalSend will start when Wi-Fi connects."
+msgstr "Wi-Fi bağlandığında LocalSend başlayacak."
+
+msgid "… and %1 more"
+msgstr "… ve %1 tane daha"
+
+msgid "%1 wants to send you %2 file(s) (%3):"
+msgstr "%1, size %2 dosya göndermek istiyor (%3):"
+
+msgid "Accept"
+msgstr "Kabul et"
+
+msgid "Decline"
+msgstr "Reddet"
+
+msgid "Receiving %1 file(s) from %2…"
+msgstr "%2 kaynağından %1 dosya alınıyor…"
+
+msgid "LocalSend: received %1 file(s), %2 failed."
+msgstr "LocalSend: %1 dosya alındı, %2 başarısız."
+
+msgid "LocalSend transfer cancelled."
+msgstr "LocalSend aktarımı iptal edildi."
+
+msgid "LocalSend: received %1 file(s)."
+msgstr "LocalSend: %1 dosya alındı."
+
+msgid "LocalSend not available on this device"
+msgstr "LocalSend bu cihazda kullanılamıyor"
+
+msgid "Scanning for nearby devices…"
+msgstr "Yakındaki cihazlar aranıyor…"
+
+msgid "No nearby devices found. Make sure the other device has LocalSend/Readest open."
+msgstr "Yakında cihaz bulunamadı. Diğer cihazda LocalSend/Readest'in açık olduğundan emin olun."
+
+msgid "Rescan"
+msgstr "Yeniden tara"
+
+msgid "Send to…"
+msgstr "Şuraya gönder…"
+
+msgid "Sending…"
+msgstr "Gönderiliyor…"
+
+msgid "Sending… %1%"
+msgstr "Gönderiliyor… %1%"
+
+msgid "Sent %1 file(s)."
+msgstr "%1 dosya gönderildi."
+
+msgid "The other device declined the transfer."
+msgstr "Diğer cihaz aktarımı reddetti."
+
+msgid "Transfer cancelled."
+msgstr "Aktarım iptal edildi."
+
+msgid "Send failed: %1"
+msgstr "Gönderme başarısız: %1"
+
+msgid "LocalSend error: %1"
+msgstr "LocalSend hatası: %1"
+
+msgid "LocalSend off"
+msgstr "LocalSend kapalı"
+
+msgid "Visible as %1"
+msgstr "%1 olarak görünür"
+
+msgid "(limited discovery)"
+msgstr "(sınırlı keşif)"
 
 msgid "Checking for update…"
 msgstr "Güncelleme kontrol ediliyor…"
@@ -437,8 +560,17 @@ msgstr "Okuma ilerlemesi senkronize edildi"
 msgid "No saved reading progress found for this book"
 msgstr "Bu kitap için kayıtlı okuma ilerlemesi bulunamadı"
 
+msgid "Reading statistics are up to date"
+msgstr "Okuma istatistikleri güncel"
+
+msgid "Reading statistics pushed"
+msgstr "Okuma istatistikleri gönderildi"
+
 msgid "Failed to push reading statistics"
-msgstr ""
+msgstr "Okuma istatistikleri gönderilemedi"
 
 msgid "Failed to pull reading statistics"
-msgstr ""
+msgstr "Okuma istatistikleri alınamadı"
+
+msgid "Reading statistics pulled"
+msgstr "Okuma istatistikleri alındı"

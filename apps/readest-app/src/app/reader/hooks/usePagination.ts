@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useEnv } from '@/context/EnvContext';
 import { FoliateView } from '@/types/view';
 import { ViewSettings } from '@/types/book';
@@ -8,7 +8,13 @@ import { useDeviceControlStore } from '@/store/deviceStore';
 import { useSettingsStore } from '@/store/settingsStore';
 import { useSidebarStore } from '@/store/sidebarStore';
 import { eventDispatcher } from '@/utils/event';
-import { resolvePageTurn, normalizeDomKeyEvent, KeyCandidate } from '@/utils/keybinding';
+import {
+  resolvePageTurn,
+  normalizeDomKeyEvent,
+  isPencilNativeKey,
+  KeyCandidate,
+} from '@/utils/keybinding';
+import { refreshEinkScreen } from '@/utils/bridge';
 import { isTauriAppPlatform } from '@/services/environment';
 import { tauriGetWindowLogicalPosition } from '@/utils/window';
 import { getReadingRulerMoveDirection } from '../utils/readingRuler';
@@ -41,7 +47,7 @@ const hasHorizontalPanning = (
   return isPanningView(view, viewSettings) && view.isOverflowX();
 };
 
-const hasVerticalPanning = (
+export const hasVerticalPanning = (
   view: FoliateView | null,
   viewSettings: ViewSettings | null | undefined,
 ) => {
@@ -149,9 +155,12 @@ export const viewPagination = (
       default: {
         const forward = !(side === 'left' || side === 'up');
         // Snap so the view's bottom edge lands between lines (not for vertical flow).
-        const snapped = viewSettings.vertical
-          ? distance
-          : snapScrolledDistanceToLines(view, distance, forward);
+        const snapped =
+          viewSettings.vertical ||
+          (viewSettings.scrolledDirection === 'horizontal' &&
+            view.book.rendition?.layout === 'pre-paginated')
+            ? distance
+            : snapScrolledDistanceToLines(view, distance, forward);
         return forward ? view.next(snapped) : view.prev(snapped);
       }
     }
@@ -193,10 +202,21 @@ export const usePagination = (
     releaseVolumeKeyInterception,
     acquirePageTurnerKeyInterception,
     releasePageTurnerKeyInterception,
+    ensureKeyForwarding,
   } = useDeviceControlStore();
   // Reactive subscription: drives the effect dependency array below. The
   // handlers themselves re-read via getState() to avoid stale closures.
   const hardwarePageTurner = useSettingsStore((s) => s.settings.hardwarePageTurner);
+  // While this book's TTS is actively playing, the volume keys must control the
+  // system volume instead of flipping pages (#4691). A paused or stopped session
+  // hands them back to the page-flip interception. Safe on iOS because the
+  // native interception never reconfigures the audio session while native TTS
+  // owns it (a .mixWithOthers flip there would vacate the Now Playing slot).
+  const [ttsPlaying, setTtsPlaying] = useState(false);
+  // handlePageFlip is registered once (see the effect below), so it can't read
+  // the ttsPlaying state directly without going stale. This ref mirrors it for
+  // the volume-key page-flip guard.
+  const ttsPlayingRef = useRef(false);
 
   const handlePageFlip = async (
     msg: MessageEvent | CustomEvent | React.MouseEvent<HTMLDivElement, MouseEvent>,
@@ -301,7 +321,14 @@ export const usePagination = (
       }
     } else if (msg instanceof CustomEvent) {
       const viewSettings = getViewSettings(bookKey);
-      if (msg.type === 'native-key-down' && viewSettings?.volumeKeysToFlip) {
+      // While TTS is playing, volume keys control the volume, not pagination.
+      // The native layer still forwards the key here (iOS via a lingering KVO,
+      // Android calls onNativeKeyDown unconditionally), so guard it here too.
+      if (
+        msg.type === 'native-key-down' &&
+        viewSettings?.volumeKeysToFlip &&
+        !ttsPlayingRef.current
+      ) {
         const { keyName } = msg.detail;
         setHoveredBookKey('');
         if (keyName === 'VolumeUp') {
@@ -340,7 +367,7 @@ export const usePagination = (
   // postMessage (mirroring useShortcuts' unified window + iframe handling).
   // All resolve through the shared binding registry. Suppressed while the
   // toolbar is visible so D-pad keys keep driving toolbar spatial navigation.
-  const handleHardwarePageTurn = (candidate: KeyCandidate): boolean => {
+  const handleHardwarePageTurn = (candidate: KeyCandidate, execute = true): boolean => {
     const settings = useSettingsStore.getState().settings.hardwarePageTurner;
     if (!settings?.enabled) return false;
     if (useReaderStore.getState().hoveredBookKey) return false;
@@ -354,6 +381,18 @@ export const usePagination = (
 
     const action = resolvePageTurn(settings, candidate);
     if (!action) return false;
+    // Auto-repeat must still claim a configured chord so browser defaults
+    // (for example Ctrl+End) remain suppressed, but must not turn again.
+    if (!execute) return true;
+
+    // E-ink full screen refresh (Android only) — clears ghosting without
+    // turning the page. The native bridge no-ops on non-e-ink hardware.
+    if (action === 'refresh') {
+      if (appService?.isAndroidApp) {
+        refreshEinkScreen().catch(() => {});
+      }
+      return true;
+    }
 
     const viewSettings = getViewSettings(bookKey);
     const side = action === 'pagePrev' || action === 'sectionPrev' ? 'up' : 'down';
@@ -379,24 +418,37 @@ export const usePagination = (
     handleHardwarePageTurn({ source: 'native', id: keyName });
   };
 
+  const handleHardwareIframeKey = (msg: CustomEvent): boolean => {
+    const detail = msg.detail as { bookKey?: string; event?: KeyboardEvent } | undefined;
+    const event = detail?.event;
+    if (detail?.bookKey !== bookKey || !event) return false;
+    const target = event.target as HTMLElement | null;
+    if (target?.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target?.tagName ?? '')) {
+      return false;
+    }
+    return handleHardwarePageTurn(normalizeDomKeyEvent(event), !event.repeat);
+  };
+
   const handleHardwareDomKey = (event: KeyboardEvent | MessageEvent) => {
     let candidate: KeyCandidate;
+    let execute = true;
     if (event instanceof KeyboardEvent) {
-      if (event.repeat) return;
       const target = event.target as HTMLElement | null;
       if (target?.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target?.tagName ?? '')) {
         return;
       }
       candidate = normalizeDomKeyEvent(event);
+      execute = !event.repeat;
     } else if (event.data?.type === 'iframe-keydown' && event.data.bookKey === bookKey) {
+      if (event.data.interactiveTarget || event.data.repeat) return;
       const id = event.data.code || event.data.key;
       if (typeof id !== 'string' || !id) return;
-      candidate = { source: 'dom', id };
+      candidate = normalizeDomKeyEvent(event.data);
     } else {
       return;
     }
 
-    if (handleHardwarePageTurn(candidate)) {
+    if (handleHardwarePageTurn(candidate, execute)) {
       // Stop `useShortcuts` from also paging on this key — capture-phase
       // for the window keydown, registration order for the iframe message.
       if (event instanceof KeyboardEvent) event.preventDefault();
@@ -407,38 +459,73 @@ export const usePagination = (
   useEffect(() => {
     if (!appService?.isMobileApp) return;
 
-    const viewSettings = getViewSettings(bookKey);
-    if (viewSettings?.volumeKeysToFlip) {
-      acquireVolumeKeyInterception();
-    } else {
-      releaseVolumeKeyInterception();
-    }
-
     eventDispatcher.on('native-key-down', handlePageFlip);
     return () => {
-      releaseVolumeKeyInterception();
       eventDispatcher.off('native-key-down', handlePageFlip);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Track this book's TTS playback so volume-key interception can step aside
+  // while audio is playing (#4691).
+  useEffect(() => {
+    const handlePlaybackState = (event: Event) => {
+      const detail = (event as CustomEvent).detail as { bookKey?: string; state?: string };
+      if (detail?.bookKey !== bookKey) return;
+      const playing = detail.state === 'playing';
+      ttsPlayingRef.current = playing;
+      setTtsPlaying(playing);
+    };
+    eventDispatcher.on('tts-playback-state', handlePlaybackState);
+    return () => {
+      eventDispatcher.off('tts-playback-state', handlePlaybackState);
+    };
+  }, [bookKey]);
+
+  // Volume-key page-flip interception (mobile only). Acquired only while the
+  // setting is on and TTS isn't playing; the matching release on re-run/unmount
+  // keeps the reference count balanced.
+  useEffect(() => {
+    if (!appService?.isMobileApp) return;
+
+    const viewSettings = getViewSettings(bookKey);
+    if (!viewSettings?.volumeKeysToFlip || ttsPlaying) return;
+
+    acquireVolumeKeyInterception();
+    return () => {
+      releaseVolumeKeyInterception();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ttsPlaying]);
+
   // Hardware page turner: native-key + DOM-key listeners and native
   // media-key interception, re-evaluated whenever the setting changes.
+  // Pencil gestures are forwarded unconditionally by the iOS bridge, so they
+  // only need the JS forwarding handler — acquiring media-key interception
+  // for them would claim MPRemoteCommandCenter next/prev-track and drag the
+  // app into the Now Playing eligibility rules (#4691).
   useEffect(() => {
-    const hasNativeBinding =
-      hardwarePageTurner?.bindings.pagePrev?.source === 'native' ||
-      hardwarePageTurner?.bindings.pageNext?.source === 'native' ||
-      hardwarePageTurner?.bindings.sectionPrev?.source === 'native' ||
-      hardwarePageTurner?.bindings.sectionNext?.source === 'native';
+    const bindings = hardwarePageTurner?.bindings;
+    const nativeBindings = [
+      bindings?.pagePrev,
+      bindings?.pageNext,
+      bindings?.sectionPrev,
+      bindings?.sectionNext,
+      bindings?.refresh,
+    ].filter((b) => b?.source === 'native');
+    const hasNativeBinding = nativeBindings.length > 0;
+    const hasMediaKeyBinding = nativeBindings.some((b) => b && !isPencilNativeKey(b.id));
     const needsNativeInterception =
-      !!appService?.isMobileApp && !!hardwarePageTurner?.enabled && hasNativeBinding;
+      !!appService?.isMobileApp && !!hardwarePageTurner?.enabled && hasMediaKeyBinding;
 
     if (needsNativeInterception) {
       acquirePageTurnerKeyInterception();
     }
     if (hasNativeBinding) {
+      if (appService?.isMobileApp) ensureKeyForwarding();
       eventDispatcher.on('native-key-down', handleHardwareNativeKey);
     }
+    eventDispatcher.onSync('iframe-page-turn-keydown', handleHardwareIframeKey);
     window.addEventListener('keydown', handleHardwareDomKey, true);
     window.addEventListener('message', handleHardwareDomKey);
 
@@ -449,17 +536,16 @@ export const usePagination = (
       if (hasNativeBinding) {
         eventDispatcher.off('native-key-down', handleHardwareNativeKey);
       }
+      eventDispatcher.offSync('iframe-page-turn-keydown', handleHardwareIframeKey);
       window.removeEventListener('keydown', handleHardwareDomKey, true);
       window.removeEventListener('message', handleHardwareDomKey);
     };
+    // The media-vs-pencil decision depends on binding ids, not just sources,
+    // and every persist creates a fresh settings object — key the effect on
+    // object identity. Re-running acquire/release on any change is safe
+    // because interception is reference-counted.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    hardwarePageTurner?.enabled,
-    hardwarePageTurner?.bindings.pagePrev?.source,
-    hardwarePageTurner?.bindings.pageNext?.source,
-    hardwarePageTurner?.bindings.sectionPrev?.source,
-    hardwarePageTurner?.bindings.sectionNext?.source,
-  ]);
+  }, [hardwarePageTurner]);
 
   // Touch swipe page flip for fixed-layout books — registered as a touch interceptor
   // so it participates in the priority-based consumption chain.

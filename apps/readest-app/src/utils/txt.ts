@@ -132,12 +132,13 @@ export class TxtToEpubConverter {
   private async convertSmallFile(options: Txt2EpubOptions): Promise<ConversionResult> {
     const { file: txtFile, author: providedAuthor, language: providedLanguage } = options;
 
-    const fileContent = await txtFile.arrayBuffer();
+    let fileContent: ArrayBuffer | null = await txtFile.arrayBuffer();
     const detectedEncoding = this.detectEncoding(fileContent) || 'utf-8';
     const runtimeEncoding = this.resolveSupportedEncoding(detectedEncoding);
     // console.log(`Detected encoding: ${detectedEncoding}, runtime encoding: ${runtimeEncoding}`);
     const decoder = new TextDecoder(runtimeEncoding);
-    const txtContent = decoder.decode(fileContent).trim();
+    let txtContent: string | null = decoder.decode(fileContent).trim();
+    fileContent = null;
 
     const filenameMeta = extractTxtFilenameMetadata(txtFile.name);
     const bookTitle = filenameMeta.title;
@@ -178,6 +179,8 @@ export class TxtToEpubConverter {
         fallbackParagraphsPerChapter,
       });
     }
+    // Chapter HTML is the remaining corpus; drop the decoded TXT before zip.
+    txtContent = null;
 
     const blob = await this.createEpub(chapters, metadata);
     return {
@@ -719,15 +722,28 @@ export class TxtToEpubConverter {
     const chapterRegexps: RegExp[] = [];
 
     if (language === 'zh') {
+      // 第N + unit, expressed as two explicit tiers that share the 第N prefix and
+      // the trailing boundary. They stay in ONE alternation (and so one split
+      // pass) on purpose: a segment often mixes chapter and volume headings (a
+      // volume wraps chapters), and the regexps array is a fallback chain — the
+      // first regex that splits "well enough" wins — so separate entries would
+      // recognize one tier and silently drop the other.
+      const cjkNumber = '第[ 　零〇一二三四五六七八九十0-9][ 　零〇一二三四五六七八九十百千万0-9]*';
+      // Tier 1 — chapter units. Real headings; a title may attach directly
+      // (第一章天地初开) or after a separator.
+      const chapterUnit = String.raw`[章节回讲篇话](?:[：:、 　\(\)0-9]*[^\n-]{0,36})`;
+      // Tier 2 — volume/measure-word units. These double as 量词 in prose
+      // (第一封信 "the first letter", 第四本书 "the fourth book"), so a title only
+      // counts when introduced by a separator (：:、, space, parens) or the line
+      // ends — never a bare noun directly after the unit. See issue #4658.
+      const volumeUnit = String.raw`[卷本册部封](?:[：:、 　\(\)][：:、 　\(\)0-9]*[^\n-]{0,36})?`;
+      const numberedHeading = String.raw`${cjkNumber}(?:${chapterUnit}|${volumeUnit})(?!\S)`;
+      const prefaceHeading = String.raw`(?:楔子|前言|简介|引言|序言|序章|总论|概论|后记|番外篇|番外|外传)(?:[：: 　][^\n-]{0,36})?(?!\S)`;
+      const englishHeading = String.raw`chapter[\s.]*[0-9]+(?:[：:. 　]+[^\n-]{0,50})?(?!\S)`;
       chapterRegexps.push(
         new RegExp(
-          String.raw`(?:^|\n)\s*` +
-            '(' +
-            [
-              String.raw`第[ 　零〇一二三四五六七八九十0-9][ 　零〇一二三四五六七八九十百千万0-9]*(?:[章卷节回讲篇封本册部话])(?:[：:、 　\(\)0-9]*[^\n-]{0,36})(?!\S)`,
-              String.raw`(?:楔子|前言|简介|引言|序言|序章|总论|概论|后记|番外篇|番外|外传)(?:[：: 　][^\n-]{0,36})?(?!\S)`,
-              String.raw`chapter[\s.]*[0-9]+(?:[：:. 　]+[^\n-]{0,50})?(?!\S)`,
-            ].join('|') +
+          String.raw`(?:^|\n)\s*(` +
+            [numberedHeading, prefaceHeading, englishHeading].join('|') +
             ')',
           'gui',
         ),
@@ -877,10 +893,14 @@ export class TxtToEpubConverter {
 
     await zipWriter.add('style.css', new TextReader(css), zipWriteOptions);
 
-    // Add chapter files
+    // Add chapter files. Drop each chapter body from the chapters array before
+    // zip.js buffers the entry so the full HTML corpus is not retained beside
+    // BlobWriter's growing archive (folder TXT import converts many books).
     for (let i = 0; i < chapters.length; i++) {
       const chapter = chapters[i]!;
       const lang = language;
+      const body = chapter.content;
+      chapter.content = '';
       const chapterContent = `<?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN" "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">
         <html xmlns="http://www.w3.org/1999/xhtml" lang="${lang}" xml:lang="${lang}">
@@ -888,7 +908,7 @@ export class TxtToEpubConverter {
             <title>${chapter.title}</title>
             <link rel="stylesheet" type="text/css" href="../style.css"/>
           </head>
-          <body>${chapter.content}</body>
+          <body>${body}</body>
         </html>`.trim();
 
       await zipWriter.add(

@@ -63,18 +63,23 @@ export const getNightlyPlatformKey = (
   isPortable: boolean,
   isAppImage: boolean,
 ): string | null => {
-  const is64 = osArchVal === 'x86_64';
   if (osTypeVal === 'android')
     return osArchVal === 'aarch64' ? 'android-arm64' : 'android-universal';
   if (osTypeVal === 'macos') return osArchVal === 'aarch64' ? 'darwin-aarch64' : 'darwin-x86_64';
+  // Match the arch explicitly so a 32-bit (or otherwise unknown) arch yields no
+  // nightly rather than mis-routing to aarch64.
   if (osTypeVal === 'windows') {
-    if (isPortable) return is64 ? 'windows-x86_64-portable' : 'windows-aarch64-portable';
-    return is64 ? 'windows-x86_64' : 'windows-aarch64';
+    if (osArchVal === 'x86_64') return isPortable ? 'windows-x86_64-portable' : 'windows-x86_64';
+    if (osArchVal === 'aarch64') return isPortable ? 'windows-aarch64-portable' : 'windows-aarch64';
+    return null;
   }
   if (osTypeVal === 'linux') {
     // Nightly Linux is AppImage-only; a deb/rpm install has no nightly
     // artifact, so it cleanly gets no nightly rather than mis-routing.
-    if (isAppImage) return is64 ? 'linux-x86_64-appimage' : 'linux-aarch64-appimage';
+    if (isAppImage) {
+      if (osArchVal === 'x86_64') return 'linux-x86_64-appimage';
+      if (osArchVal === 'aarch64') return 'linux-aarch64-appimage';
+    }
     return null;
   }
   return null;
@@ -144,48 +149,62 @@ export const checkForAppUpdates = async (
   console.log('Checking for updates', { updateChannel });
   const OS_TYPE = osType();
 
-  if (updateChannel === 'nightly') {
-    const platformKey = getNightlyPlatformKey(
-      OS_TYPE,
-      osArch(),
-      Boolean(process.env['NEXT_PUBLIC_PORTABLE_APP']),
-      Boolean((window as { __READEST_IS_APPIMAGE?: boolean }).__READEST_IS_APPIMAGE),
-    );
-    if (!platformKey) return false;
-    const resolved = await resolveNightlyUpdate(getAppVersion(), platformKey, fetch);
-    if (resolved) {
-      setUpdaterWindowVisible(true, resolved.version, getAppVersion(), true, resolved);
-      return true;
+  try {
+    if (updateChannel === 'nightly') {
+      const platformKey = getNightlyPlatformKey(
+        OS_TYPE,
+        osArch(),
+        Boolean(process.env['NEXT_PUBLIC_PORTABLE_APP']),
+        Boolean((window as { __READEST_IS_APPIMAGE?: boolean }).__READEST_IS_APPIMAGE),
+      );
+      if (!platformKey) return false;
+      const resolved = await resolveNightlyUpdate(getAppVersion(), platformKey, fetch);
+      if (resolved) {
+        setUpdaterWindowVisible(true, resolved.version, getAppVersion(), true, resolved);
+        return true;
+      }
+      return false;
     }
+
+    if (['macos', 'windows', 'linux'].includes(OS_TYPE)) {
+      const update = await check();
+      if (update) {
+        // Enum ScrollBarStyle is exported as type by tauri, so it cannot be used directly.
+        const scrollBarStyle = (OS_TYPE === 'windows'
+          ? 'fluentOverlay'
+          : 'default') as unknown as ScrollBarStyle;
+        showUpdateWindow(update.version, scrollBarStyle);
+      }
+      return !!update;
+    } else if (OS_TYPE === 'android') {
+      try {
+        const response = await fetch(READEST_UPDATER_FILE, { connectTimeout: 5000 });
+        const data = await response.json();
+        const isNewer = semver.gt(data.version, getAppVersion());
+        if (
+          isNewer &&
+          ('android-arm64' in data.platforms || 'android-universal' in data.platforms)
+        ) {
+          setUpdaterWindowVisible(true, data.version!, getAppVersion());
+        }
+        return isNewer;
+      } catch (err) {
+        console.warn('Failed to fetch Android update info', err);
+        throw new Error('Failed to fetch Android update info');
+      }
+    }
+
+    return false;
+  } catch (err) {
+    // Update checks are best-effort: they fail routinely when offline or when
+    // the release host is unreachable. An auto-check runs fire-and-forget on
+    // mount, so throwing here becomes an unhandled rejection (READEST-J desktop
+    // latest.json, READEST-22 Android update info). Only surface the failure for
+    // a manual check (About window).
+    console.warn('Update check failed', err);
+    if (!isAutoCheck) throw err;
     return false;
   }
-
-  if (['macos', 'windows', 'linux'].includes(OS_TYPE)) {
-    const update = await check();
-    if (update) {
-      // Enum ScrollBarStyle is exported as type by tauri, so it cannot be used directly.
-      const scrollBarStyle = (OS_TYPE === 'windows'
-        ? 'fluentOverlay'
-        : 'default') as unknown as ScrollBarStyle;
-      showUpdateWindow(update.version, scrollBarStyle);
-    }
-    return !!update;
-  } else if (OS_TYPE === 'android') {
-    try {
-      const response = await fetch(READEST_UPDATER_FILE, { connectTimeout: 5000 });
-      const data = await response.json();
-      const isNewer = semver.gt(data.version, getAppVersion());
-      if (isNewer && ('android-arm64' in data.platforms || 'android-universal' in data.platforms)) {
-        setUpdaterWindowVisible(true, data.version!, getAppVersion());
-      }
-      return isNewer;
-    } catch (err) {
-      console.warn('Failed to fetch Android update info', err);
-      throw new Error('Failed to fetch Android update info');
-    }
-  }
-
-  return false;
 };
 
 const LAST_SHOWN_RELEASE_NOTES_KEY = 'lastShownReleaseNotesVersion';

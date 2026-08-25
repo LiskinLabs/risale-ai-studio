@@ -20,6 +20,7 @@ vi.mock('@/utils/lang', () => ({
   getLanguageInfo: vi.fn(() => ({ direction: 'ltr' })),
   isSameLang: vi.fn(() => true),
   isValidLang: vi.fn(() => true),
+  normalizedLangCode: (lang?: string | null) => (lang ? lang.split('-')[0]!.toLowerCase() : ''),
 }));
 
 vi.mock('@/store/settingsStore', () => ({
@@ -235,6 +236,54 @@ describe('whitespaceTransformer', () => {
         makeCtx({ content: '', viewSettings: settings }),
       );
       expect(result).toBe('');
+    });
+
+    test('preserves indentation inside <pre>', async () => {
+      const html = '<pre><code>&lt;div&gt;\n    &lt;a/&gt;\n        &lt;b/&gt;\n</code></pre>';
+      const result = await whitespaceTransformer.transform(
+        makeCtx({ content: html, viewSettings: settings }),
+      );
+      expect(result).toBe(html);
+    });
+
+    test('preserves spaces inside inline <code>', async () => {
+      const html = '<p>run <code>a    b</code> now</p>';
+      const result = await whitespaceTransformer.transform(
+        makeCtx({ content: html, viewSettings: settings }),
+      );
+      expect(result).toBe(html);
+    });
+
+    test('still collapses spaces outside <pre>', async () => {
+      const html = '<p>hello   world</p><pre>  keep  me  </pre><p>a   b</p>';
+      const result = await whitespaceTransformer.transform(
+        makeCtx({ content: html, viewSettings: settings }),
+      );
+      expect(result).toBe('<p>hello world</p><pre>  keep  me  </pre><p>a b</p>');
+    });
+
+    test('preserves nbsp entities inside <pre>', async () => {
+      const html = '<pre>a&nbsp;&nbsp;b</pre>';
+      const result = await whitespaceTransformer.transform(
+        makeCtx({ content: html, viewSettings: settings }),
+      );
+      expect(result).toBe(html);
+    });
+
+    test('handles <pre> with attributes and uppercase tags', async () => {
+      const html = '<PRE class="x">a    b</PRE>';
+      const result = await whitespaceTransformer.transform(
+        makeCtx({ content: html, viewSettings: settings }),
+      );
+      expect(result).toBe(html);
+    });
+
+    test('collapses spaces in text between two <pre> blocks', async () => {
+      const html = '<pre>a    b</pre>x   y<pre>c    d</pre>';
+      const result = await whitespaceTransformer.transform(
+        makeCtx({ content: html, viewSettings: settings }),
+      );
+      expect(result).toBe('<pre>a    b</pre>x y<pre>c    d</pre>');
     });
   });
 
@@ -674,6 +723,46 @@ describe('sanitizerTransformer', () => {
     expect(result).toMatch(/^<\?xml version="1\.0" encoding="utf-8"\?>/);
     expect(result).toContain('<!DOCTYPE html');
   });
+
+  const sanitize = async (text: string) => {
+    const html = `<html><head></head><body><p>${text}</p></body></html>`;
+    return sanitizerTransformer.transform(makeCtx({ content: html }));
+  };
+
+  test('converts RLM misused as half-space between Arabic letters to ZWNJ', async () => {
+    // "mi-ravam" written with RLM (U+200F) instead of ZWNJ (U+200C)
+    const result = await sanitize('می\u200Fروم');
+    expect(result).toContain('می\u200Cروم');
+    expect(result).not.toContain('\u200F');
+  });
+
+  test('converts a run of consecutive RLMs between Arabic letters, preserving length', async () => {
+    const result = await sanitize('ا\u200F\u200Fب');
+    expect(result).toContain('ا\u200C\u200Cب');
+    expect(result).not.toContain('\u200F');
+  });
+
+  test('converts RLM after an Arabic letter with a diacritic', async () => {
+    // letter + kasra (U+0650) + RLM + letter
+    const result = await sanitize('بِ\u200Fب');
+    expect(result).toContain('بِ\u200Cب');
+  });
+
+  test('leaves RLM between Arabic-script digits untouched', async () => {
+    // RLM between digits is a live bidi hint that keeps the digit runs
+    // separate; swapping it for ZWNJ would flip their visual order.
+    const persianDigits = await sanitize('۱\u200F۲');
+    expect(persianDigits).toContain('۱\u200F۲');
+    const arabicDigits = await sanitize('١\u200F٢');
+    expect(arabicDigits).toContain('١\u200F٢');
+  });
+
+  test('leaves RLM next to Latin text or at a text boundary untouched', async () => {
+    const latin = await sanitize('abc\u200Fا');
+    expect(latin).toContain('abc\u200Fا');
+    const boundary = await sanitize('\u200Fاب');
+    expect(boundary).toContain('\u200Fاب');
+  });
 });
 
 // =============================================================================
@@ -770,6 +859,140 @@ describe('simpleccTransformer', () => {
 });
 
 // =============================================================================
+// nbspTransformer
+// =============================================================================
+
+describe('nbspTransformer', () => {
+  let nbspTransformer: typeof import('@/services/transformers/nbsp').nbspTransformer;
+
+  beforeEach(async () => {
+    ({ nbspTransformer } = await import('@/services/transformers/nbsp'));
+  });
+
+  test('has the correct name', () => {
+    expect(nbspTransformer.name).toBe('nbsp');
+  });
+
+  test('returns content unchanged for unsupported languages', async () => {
+    const html = '<html><body><p>в доме</p></body></html>';
+    const result = await nbspTransformer.transform(
+      makeCtx({ content: html, primaryLanguage: 'en' }),
+    );
+    expect(result).toBe(html);
+  });
+
+  describe('for Russian books', () => {
+    const NBSP = '\u00A0';
+
+    test('glues a single-letter preposition to the next word', async () => {
+      const html = '<html><body><p>книга в доме</p></body></html>';
+      const result = await nbspTransformer.transform(
+        makeCtx({ content: html, primaryLanguage: 'ru' }),
+      );
+      expect(result).toContain(`в${NBSP}доме`);
+      expect(result).not.toContain('в доме');
+    });
+
+    test('glues a two-letter conjunction', async () => {
+      const html = '<p>тепло но ветрено</p>';
+      const result = await nbspTransformer.transform(
+        makeCtx({ content: html, primaryLanguage: 'ru' }),
+      );
+      expect(result).toContain(`но${NBSP}ветрено`);
+    });
+
+    test('glues multi-letter function words from the list', async () => {
+      const html = '<p>только если хотя дом</p>';
+      const result = await nbspTransformer.transform(
+        makeCtx({ content: html, primaryLanguage: 'ru-RU' }),
+      );
+      expect(result).toContain(`только${NBSP}если${NBSP}хотя${NBSP}дом`);
+    });
+
+    test('handles capitalized words at the start of a sentence', async () => {
+      const html = '<p>Но что делать</p>';
+      const result = await nbspTransformer.transform(
+        makeCtx({ content: html, primaryLanguage: 'ru' }),
+      );
+      expect(result).toContain(`Но${NBSP}что${NBSP}делать`);
+    });
+
+    test('glues consecutive short words', async () => {
+      const html = '<p>и в доме</p>';
+      const result = await nbspTransformer.transform(
+        makeCtx({ content: html, primaryLanguage: 'ru' }),
+      );
+      expect(result).toContain(`и${NBSP}в${NBSP}доме`);
+    });
+
+    test('does not split a longer word that begins with a short word', async () => {
+      const html = '<p>в наказание</p>';
+      const result = await nbspTransformer.transform(
+        makeCtx({ content: html, primaryLanguage: 'ru' }),
+      );
+      expect(result).toContain(`в${NBSP}наказание`);
+      // "на" inside "наказание" must stay intact (no NBSP injected mid-word)
+      expect(result).not.toContain(`на${NBSP}`);
+    });
+
+    test('leaves text without short function words unchanged', async () => {
+      const html = '<html><body><p>наш дом большой</p></body></html>';
+      const result = await nbspTransformer.transform(
+        makeCtx({ content: html, primaryLanguage: 'ru' }),
+      );
+      expect(result).toBe(html);
+    });
+
+    test('does not modify attribute values, only text nodes', async () => {
+      const html = '<html><body><p title="это и то">в доме</p></body></html>';
+      const result = await nbspTransformer.transform(
+        makeCtx({ content: html, primaryLanguage: 'ru' }),
+      );
+      expect(result).toContain('title="это и то"');
+      expect(result).toContain(`в${NBSP}доме`);
+    });
+
+    test('skips <style> and <script> content', async () => {
+      const html = '<html><head><style>в доме</style></head><body><p>в доме</p></body></html>';
+      const result = await nbspTransformer.transform(
+        makeCtx({ content: html, primaryLanguage: 'ru' }),
+      );
+      // body text glued, style text left intact (regular space)
+      expect(result).toContain('<style>в доме</style>');
+      expect(result).toContain(`<p>в${NBSP}доме</p>`);
+    });
+
+    test('does not glue a preposition before a non-Cyrillic word', async () => {
+      const html = '<p>читаю в Google</p>';
+      const result = await nbspTransformer.transform(
+        makeCtx({ content: html, primaryLanguage: 'ru' }),
+      );
+      expect(result).toContain('в Google');
+      expect(result).not.toContain(`в${NBSP}Google`);
+    });
+
+    test('preserves total length so CFIs stay valid', async () => {
+      const html = '<html><body><p>Он пришёл в дом и сел у окна около 5 часов.</p></body></html>';
+      const result = await nbspTransformer.transform(
+        makeCtx({ content: html, primaryLanguage: 'ru' }),
+      );
+      expect(result.length).toBe(html.length);
+      // length is unchanged, but NBSPs were actually inserted
+      expect(result).not.toBe(html);
+    });
+
+    test('keeps length stable with consecutive short words', async () => {
+      const html = '<p>и в доме</p>';
+      const result = await nbspTransformer.transform(
+        makeCtx({ content: html, primaryLanguage: 'ru' }),
+      );
+      expect(result.length).toBe(html.length);
+      expect(result).toContain(`и${NBSP}в${NBSP}доме`);
+    });
+  });
+});
+
+// =============================================================================
 // availableTransformers (index)
 // =============================================================================
 
@@ -785,6 +1008,7 @@ describe('availableTransformers', () => {
     expect(names).toContain('language');
     expect(names).toContain('simplecc');
     expect(names).toContain('proofread');
+    expect(names).toContain('nbsp');
   });
 
   test('each transformer has a name and transform function', async () => {

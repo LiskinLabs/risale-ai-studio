@@ -533,6 +533,62 @@ describe('customDictionaryStore — loadCustomDictionaries reconciliation', () =
     vi.clearAllMocks();
   });
 
+  it('keeps legacy dictionaries visible when the plugin control database is unavailable', async () => {
+    type SettingsState = ReturnType<typeof useSettingsStore.getState>;
+    useCustomDictionaryStore.setState({ dictionaries: [] });
+    useSettingsStore.setState({
+      settings: {
+        customDictionaries: [
+          {
+            id: 'plugin-dict',
+            contentId: 'plugin-dict',
+            kind: 'plugin',
+            name: 'Plugin dictionary',
+            bundleDir: 'plugin-dir',
+            files: { pluginSource: 'plugin.zip' },
+            plugin: {
+              recordVersion: 1,
+              pluginId: 'readest.yomitan',
+              formatId: 'yomitan',
+              sourceFormatVersion: 3,
+              indexVersion: 2,
+              source: { filename: 'plugin.zip', byteSize: 1, sha256: 'a'.repeat(64) },
+            },
+            addedAt: 1,
+          },
+          {
+            id: 'legacy-dict',
+            contentId: 'legacy-dict',
+            kind: 'bgl',
+            name: 'Legacy dictionary',
+            bundleDir: 'legacy-dir',
+            files: { bgl: 'legacy.bgl' },
+            addedAt: 1,
+          },
+        ],
+        dictionarySettings: {
+          providerOrder: ['plugin-dict', 'legacy-dict'],
+          providerEnabled: { 'plugin-dict': true, 'legacy-dict': true },
+          webSearches: [],
+        },
+      } as unknown as SettingsState['settings'],
+    } as unknown as SettingsState);
+    const fakeAppService = {
+      exists: vi.fn().mockResolvedValue(true),
+      openDatabase: vi.fn().mockRejectedValue(new Error('control unavailable')),
+    };
+    const fakeEnv = {
+      getAppService: () => Promise.resolve(fakeAppService),
+    } as unknown as EnvConfigType;
+
+    await useCustomDictionaryStore.getState().loadCustomDictionaries(fakeEnv);
+
+    expect(useCustomDictionaryStore.getState().dictionaries).toEqual([
+      expect.objectContaining({ id: 'plugin-dict', unavailable: true }),
+      expect.not.objectContaining({ id: 'legacy-dict', unavailable: true }),
+    ]);
+  });
+
   it('prunes providerOrder + providerEnabled entries whose customDictionaries row is tombstoned', async () => {
     type SettingsState = ReturnType<typeof useSettingsStore.getState>;
     useSettingsStore.setState({
@@ -693,5 +749,76 @@ describe('customDictionaryStore — loadCustomDictionaries reconciliation', () =
     const after = useCustomDictionaryStore.getState().settings;
     expect(after.providerOrder.includes('imp-tombstoned')).toBe(false);
     expect('imp-tombstoned' in after.providerEnabled).toBe(false);
+  });
+});
+
+describe('customDictionaryStore — fontScale (dictionary popup font size, #4443)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useCustomDictionaryStore.setState({
+      dictionaries: [],
+      settings: {
+        providerOrder: ['local-x'],
+        providerEnabled: { 'local-x': true },
+        webSearches: [],
+      },
+    });
+  });
+
+  it('setFontScale updates the in-memory setting', () => {
+    const { setFontScale } = useCustomDictionaryStore.getState();
+    setFontScale(1.3);
+    expect(useCustomDictionaryStore.getState().settings.fontScale).toBe(1.3);
+  });
+
+  it('applyRemoteDictionarySettings overlays a remote fontScale patch', () => {
+    const { applyRemoteDictionarySettings } = useCustomDictionaryStore.getState();
+    applyRemoteDictionarySettings({ fontScale: 1.5 });
+    expect(useCustomDictionaryStore.getState().settings.fontScale).toBe(1.5);
+  });
+
+  it('loadCustomDictionaries defaults fontScale to 1 when the persisted settings omit it', async () => {
+    type SettingsState = ReturnType<typeof useSettingsStore.getState>;
+    useSettingsStore.setState({
+      settings: {
+        customDictionaries: [],
+        dictionarySettings: {
+          providerOrder: ['builtin:wikipedia'],
+          providerEnabled: { 'builtin:wikipedia': true },
+          webSearches: [],
+        },
+      } as unknown as SettingsState['settings'],
+    } as unknown as SettingsState);
+
+    const fakeAppService = { exists: vi.fn().mockResolvedValue(false) };
+    const fakeEnv = {
+      getAppService: () => Promise.resolve(fakeAppService),
+    } as unknown as EnvConfigType;
+
+    await useCustomDictionaryStore.getState().loadCustomDictionaries(fakeEnv);
+    expect(useCustomDictionaryStore.getState().settings.fontScale).toBe(1);
+  });
+
+  it('loadCustomDictionaries preserves a persisted fontScale', async () => {
+    type SettingsState = ReturnType<typeof useSettingsStore.getState>;
+    useSettingsStore.setState({
+      settings: {
+        customDictionaries: [],
+        dictionarySettings: {
+          providerOrder: ['builtin:wikipedia'],
+          providerEnabled: { 'builtin:wikipedia': true },
+          webSearches: [],
+          fontScale: 1.15,
+        },
+      } as unknown as SettingsState['settings'],
+    } as unknown as SettingsState);
+
+    const fakeAppService = { exists: vi.fn().mockResolvedValue(false) };
+    const fakeEnv = {
+      getAppService: () => Promise.resolve(fakeAppService),
+    } as unknown as EnvConfigType;
+
+    await useCustomDictionaryStore.getState().loadCustomDictionaries(fakeEnv);
+    expect(useCustomDictionaryStore.getState().settings.fontScale).toBe(1.15);
   });
 });

@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 // Local nightly-updater verification harness (Tier 2 detection + Tier 4 invoke).
 //
 // `pnpm verify:nightly` serves crafted nightly/stable manifests + a test artifact
@@ -89,9 +88,17 @@ const handleRequest = (req, res) => {
       return json(res, buildStableManifest(false));
     case '/releases/latest-surpass.json':
       return json(res, buildStableManifest(true));
-    case '/artifacts/test.bin':
+    case '/artifacts/test.bin': {
+      const stream = fs.createReadStream(ARTIFACT);
+      // Handle a missing/unreadable artifact instead of crashing the harness on
+      // an unhandled stream 'error'.
+      stream.on('error', () => {
+        if (!res.headersSent) res.writeHead(500);
+        res.end('artifact error');
+      });
       res.writeHead(200, { 'content-type': 'application/octet-stream' });
-      return fs.createReadStream(ARTIFACT).pipe(res);
+      return stream.pipe(res);
+    }
     default:
       res.writeHead(404);
       return res.end('not found');

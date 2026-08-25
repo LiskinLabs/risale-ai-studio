@@ -1,5 +1,11 @@
 import React from 'react';
-import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react';
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  waitFor as waitForWithOptions,
+} from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import ParagraphOverlay from '@/app/reader/components/paragraph/ParagraphOverlay';
@@ -22,6 +28,20 @@ const currentViewSettings = {
 const mockGetViewSettings = vi.fn(() => currentViewSettings);
 const mockSetViewSettings = vi.fn();
 const mockGetProgress = vi.fn(() => null);
+const realSetTimeout = globalThis.setTimeout;
+const waitFor = <T,>(callback: () => T | Promise<T>) =>
+  waitForWithOptions(callback, { interval: 1 });
+
+beforeEach(() => {
+  // Preserve Testing Library's 1s failure timeout while collapsing app animation/debounce waits.
+  vi.spyOn(globalThis, 'setTimeout').mockImplementation((handler, timeout) =>
+    realSetTimeout(handler, typeof timeout === 'number' && timeout < 500 ? 0 : timeout),
+  );
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 let mockIsFixedLayout = false;
 
@@ -208,6 +228,89 @@ describe('paragraph mode', () => {
     });
   });
 
+  it('resumes without scrolling the underlying view so repeated enter/exit cannot rewind (#4717)', async () => {
+    const doc = createDoc('<p>Para A</p><p>Para B</p><p>Para C</p>');
+    const { view, renderer } = createMockView([doc], 0);
+    const viewRef = { current: view } as React.RefObject<FoliateView | null>;
+
+    render(<HookHarness view={viewRef} />);
+    await waitFor(() => {
+      expect(hookApi?.paragraphState.currentRange).toBeTruthy();
+    });
+
+    // Resuming/entering focuses the paragraph already at the reading position.
+    // Scrolling the underlying view to that paragraph's start rewinds whenever it
+    // began on an earlier page, so the view must NOT be moved on resume (#4717).
+    expect(renderer.goTo).not.toHaveBeenCalled();
+    expect(renderer.scrollToAnchor).not.toHaveBeenCalled();
+  });
+
+  it('resumes at the view live CFI even when the store progress is stale (#4717)', async () => {
+    const doc = createDoc('<p>Block zero</p><p>Block one</p><p>Block two</p>');
+    const { view } = createMockView([doc], 0);
+    // The rAF-debounced store (mockGetProgress) returns null/stale; the view's
+    // live lastLocation CFI points at the third paragraph. Resume must follow the
+    // live CFI (resolved against the current doc), not fall back to chapter start.
+    const thirdParagraph = doc.querySelectorAll('p')[2]!;
+    (view as unknown as { lastLocation: { cfi: string } }).lastLocation = { cfi: 'cfi-live' };
+    (view.resolveCFI as ReturnType<typeof vi.fn>).mockImplementation((cfi: string) =>
+      cfi === 'cfi-live'
+        ? {
+            index: 0,
+            anchor: () => {
+              const r = doc.createRange();
+              r.selectNodeContents(thirdParagraph);
+              return r;
+            },
+          }
+        : null,
+    );
+    const viewRef = { current: view } as React.RefObject<FoliateView | null>;
+
+    render(<HookHarness view={viewRef} />);
+    await waitFor(() => {
+      expect(hookApi?.paragraphState.currentRange?.toString()).toContain('Block two');
+    });
+  });
+
+  it('does not scroll the underlying view when exiting paragraph mode (#4717)', async () => {
+    const doc = createDoc('<p>Para A</p><p>Para B</p>');
+    const { view, renderer } = createMockView([doc], 0);
+    const viewRef = { current: view } as React.RefObject<FoliateView | null>;
+
+    render(<HookHarness view={viewRef} />);
+    await waitFor(() => {
+      expect(hookApi?.paragraphState.currentRange).toBeTruthy();
+    });
+
+    await act(async () => {
+      await hookApi?.toggleParagraphMode();
+    });
+
+    expect(renderer.scrollToAnchor).not.toHaveBeenCalled();
+  });
+
+  it('still scrolls the underlying view when navigating paragraphs', async () => {
+    const doc = createDoc('<p>Para A</p><p>Para B</p><p>Para C</p>');
+    const { view, renderer } = createMockView([doc], 0);
+    const viewRef = { current: view } as React.RefObject<FoliateView | null>;
+
+    render(<HookHarness view={viewRef} />);
+    await waitFor(() => {
+      expect(hookApi?.paragraphState.currentRange).toBeTruthy();
+    });
+
+    await act(async () => {
+      await hookApi?.goToNextParagraph();
+    });
+
+    // Navigation to another paragraph must move the underlying view (the goTo
+    // runs after a rAF inside focusCurrentParagraph, so wait for it).
+    await waitFor(() => {
+      expect(renderer.goTo).toHaveBeenCalled();
+    });
+  });
+
   it('renders preserved presentation and layout-aware click zones in the overlay', async () => {
     const dispatchSpy = vi.spyOn(eventDispatcher, 'dispatch');
     const overlayBookKey = 'overlay-book';
@@ -219,7 +322,6 @@ describe('paragraph mode', () => {
     const { container } = render(
       <ParagraphOverlay
         bookKey={overlayBookKey}
-        dimOpacity={0.3}
         viewSettings={{ writingMode: 'horizontal-tb', vertical: false, rtl: true } as never}
       />,
     );
@@ -260,6 +362,8 @@ describe('paragraph mode', () => {
       y: 0,
       toJSON: () => ({}),
     } as DOMRect);
+    let clickTime = 1_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => clickTime);
 
     fireEvent.click(contentArea, { clientX: 150, clientY: 20 });
     await waitFor(() => {
@@ -280,9 +384,7 @@ describe('paragraph mode', () => {
     });
     dispatchSpy.mockClear();
 
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 320));
-    });
+    clickTime += 320;
 
     fireEvent.click(contentArea, { clientX: 40, clientY: 150 });
     await waitFor(() => {
@@ -300,7 +402,6 @@ describe('paragraph mode', () => {
     const { container } = render(
       <ParagraphOverlay
         bookKey={overlayBookKey}
-        dimOpacity={0.3}
         viewSettings={{ writingMode: 'horizontal-tb', vertical: false, rtl: false } as never}
         onClose={onClose}
       />,
@@ -380,6 +481,134 @@ describe('paragraph mode', () => {
     fireEvent.click(contentArea, { clientX: 150, clientY: 150 });
 
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  const getDialog = (container: HTMLElement) =>
+    container.querySelector('[role="dialog"]') as HTMLDivElement;
+
+  it('paints a solid backdrop instead of blurring the page behind it (#5275)', async () => {
+    const { container } = await renderVisibleOverlay(vi.fn());
+    const dialog = getDialog(container);
+
+    expect(dialog.className).toContain('bg-base-100');
+    expect(dialog.getAttribute('style') ?? '').not.toContain('blur');
+    expect(dialog.getAttribute('style') ?? '').not.toContain('background');
+  });
+
+  it('focuses the dialog when it opens so it receives keys directly (#4717)', async () => {
+    const { container } = await renderVisibleOverlay(vi.fn());
+    const dialog = getDialog(container);
+    expect(document.activeElement).toBe(dialog);
+  });
+
+  it('exits when the toggle paragraph mode shortcut (Shift+P) is pressed (#4717)', async () => {
+    const onClose = vi.fn();
+    const { container } = await renderVisibleOverlay(onClose);
+
+    fireEvent.keyDown(getDialog(container), { key: 'P', shiftKey: true });
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('exits when Escape is pressed on the dialog (#4717)', async () => {
+    const onClose = vi.fn();
+    const { container } = await renderVisibleOverlay(onClose);
+
+    fireEvent.keyDown(getDialog(container), { key: 'Escape' });
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('stops the toggle key from propagating so it cannot fire twice (#4717)', async () => {
+    const onClose = vi.fn();
+    const { container } = await renderVisibleOverlay(onClose);
+    const windowSpy = vi.fn();
+    window.addEventListener('keydown', windowSpy);
+
+    fireEvent.keyDown(getDialog(container), { key: 'P', shiftKey: true });
+
+    // The dialog handler must stop propagation so the global useShortcuts
+    // handler never receives the same keypress (which would re-toggle).
+    expect(windowSpy).not.toHaveBeenCalled();
+    window.removeEventListener('keydown', windowSpy);
+  });
+
+  it('does not exit on an unrelated key while visible', async () => {
+    const onClose = vi.fn();
+    const { container } = await renderVisibleOverlay(onClose);
+
+    fireEvent.keyDown(getDialog(container), { key: 'x' });
+
+    expect(onClose).not.toHaveBeenCalled();
+  });
+});
+
+describe('paragraph mode display settings (#5246)', () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  const fontViewSettings = {
+    writingMode: 'horizontal-tb',
+    vertical: false,
+    rtl: false,
+    defaultFont: 'Serif',
+    serifFont: 'Bitter',
+    sansSerifFont: 'Roboto',
+    monospaceFont: 'Fira Code',
+    defaultCJKFont: 'LXGW WenKai',
+    defaultFontSize: 20,
+    lineHeight: 1.6,
+    fontWeight: 400,
+  } as never;
+
+  const renderOverlayWithFonts = async (fontScale?: number) => {
+    const overlayBookKey = 'overlay-book';
+    const doc = createDoc('<p>你好，世界</p>');
+    const range = doc.createRange();
+    range.selectNodeContents(doc.querySelector('p')!);
+
+    const { container } = render(
+      <ParagraphOverlay
+        bookKey={overlayBookKey}
+        viewSettings={fontViewSettings}
+        fontScale={fontScale}
+      />,
+    );
+
+    await act(async () => {
+      await eventDispatcher.dispatch('paragraph-focus', {
+        bookKey: overlayBookKey,
+        range,
+        presentation: { dir: 'ltr', writingMode: 'horizontal-tb', vertical: false, rtl: false },
+      });
+    });
+
+    return waitFor(() => {
+      const node = container.querySelector('.paragraph-content') as HTMLDivElement | null;
+      expect(node).not.toBeNull();
+      return node!;
+    });
+  };
+
+  it('applies the reader font chain including the CJK/custom font', async () => {
+    const paragraphContent = await renderOverlayWithFonts();
+
+    // The bare `"Bitter", serif` pair dropped the user's CJK/custom font, so
+    // CJK text fell back to the system font (#5246). The overlay must resolve
+    // the same chain as the RSVP overlay (getBaseFontFamily).
+    expect(paragraphContent.style.fontFamily).toContain('Bitter');
+    expect(paragraphContent.style.fontFamily).toContain('LXGW WenKai');
+  });
+
+  it('scales the paragraph text and its frame by the font scale', async () => {
+    const paragraphContent = await renderOverlayWithFonts(1.5);
+
+    expect(paragraphContent.style.fontSize).toBe('30px');
+    // The frame must carry the scaled font too, so its ch-based width cap
+    // grows with the text instead of squeezing bigger text into the same box.
+    const frame = paragraphContent.parentElement as HTMLDivElement;
+    expect(frame.style.fontSize).toBe('30px');
   });
 });
 

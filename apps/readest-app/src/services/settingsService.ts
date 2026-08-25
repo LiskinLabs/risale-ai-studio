@@ -1,5 +1,5 @@
 import { FileSystem } from '@/types/system';
-import { ReadSettings, SystemSettings } from '@/types/settings';
+import { LibrarySecondarySortByType, ReadSettings, SystemSettings } from '@/types/settings';
 import { DEFAULT_HIGHLIGHT_COLORS, UserHighlightColor, ViewSettings } from '@/types/book';
 import { v4 as uuidv4 } from 'uuid';
 import {
@@ -20,7 +20,7 @@ import {
   SETTINGS_FILENAME,
   DEFAULT_MOBILE_SYSTEM_SETTINGS,
   DEFAULT_ANNOTATOR_CONFIG,
-  DEFAULT_WORD_WISE_CONFIG,
+  DEFAULT_WORD_LENS_CONFIG,
   DEFAULT_EINK_VIEW_SETTINGS,
   DEFAULT_VIEW_SETTINGS_CONFIG,
 } from './constants';
@@ -45,7 +45,7 @@ export function getDefaultViewSettings(ctx: Context): ViewSettings {
     ...DEFAULT_TTS_CONFIG,
     ...DEFAULT_SCREEN_CONFIG,
     ...DEFAULT_ANNOTATOR_CONFIG,
-    ...DEFAULT_WORD_WISE_CONFIG,
+    ...DEFAULT_WORD_LENS_CONFIG,
     ...DEFAULT_VIEW_SETTINGS_CONFIG,
     ...(ctx.isMobile ? DEFAULT_MOBILE_VIEW_SETTINGS : {}),
     ...(ctx.isEink ? DEFAULT_EINK_VIEW_SETTINGS : {}),
@@ -103,6 +103,20 @@ export function migrateHighlightColorPrefs(read: ReadSettings): void {
   read.userHighlightColors = userColors;
 }
 
+/**
+ * `librarySortBy2` was renamed to `libraryThenSortBy` (#5119). Carry a stored
+ * pre-rename pick over so users keep their "Then by" sort, then drop the legacy
+ * key so a later explicit `'none'` isn't resurrected on the next load.
+ */
+export function migrateLibraryThenSort(settings: SystemSettings): void {
+  const legacy = settings as unknown as { librarySortBy2?: LibrarySecondarySortByType };
+  if (!legacy.librarySortBy2) return;
+  if (settings.libraryThenSortBy === 'none') {
+    settings.libraryThenSortBy = legacy.librarySortBy2;
+  }
+  delete legacy.librarySortBy2;
+}
+
 export async function loadSettings(ctx: Context): Promise<SystemSettings> {
   const defaultSettings: SystemSettings = {
     ...DEFAULT_SYSTEM_SETTINGS,
@@ -158,8 +172,15 @@ export async function loadSettings(ctx: Context): Promise<SystemSettings> {
     settings.globalViewSettings.annotationQuickAction = 'dictionary';
   }
 
+  migrateLibraryThenSort(settings);
+
   if (!settings.kosync.deviceId) {
     settings.kosync.deviceId = uuidv4();
+    await saveSettings(ctx.fs, settings);
+  }
+
+  if (!settings.bookorbit.deviceId) {
+    settings.bookorbit.deviceId = uuidv4();
     await saveSettings(ctx.fs, settings);
   }
 

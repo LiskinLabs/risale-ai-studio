@@ -20,6 +20,7 @@ import type { ThemeCode } from '@/utils/style';
 import {
   applyThemeModeClass,
   applyScrollModeClass,
+  applyEinkModeAttribute,
   applyScrollbarStyle,
   applyTranslationStyle,
   getThemeCode,
@@ -105,6 +106,38 @@ describe('applyScrollModeClass', () => {
     document.body.className = '';
     applyScrollModeClass(document, false);
     expect(document.body.classList.contains('paginated-mode')).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applyEinkModeAttribute (#5795)
+// ---------------------------------------------------------------------------
+describe('applyEinkModeAttribute', () => {
+  afterEach(() => {
+    document.documentElement.removeAttribute('data-eink');
+  });
+
+  it("sets data-eink='true' on the book document root when e-ink mode is on", () => {
+    applyEinkModeAttribute(document, true);
+    expect(document.documentElement.getAttribute('data-eink')).toBe('true');
+  });
+
+  it("writes data-eink='false' rather than removing it so LCD-only rules can match", () => {
+    applyEinkModeAttribute(document, true);
+    applyEinkModeAttribute(document, false);
+    expect(document.documentElement.getAttribute('data-eink')).toBe('false');
+    expect(document.body.matches("html[data-eink='false'] body")).toBe(true);
+  });
+
+  it('lets a synced user stylesheet gate rules on the rendering screen', () => {
+    const p = document.createElement('p');
+    document.body.appendChild(p);
+    const einkOnly = "html[data-eink='true'] body *";
+    applyEinkModeAttribute(document, true);
+    expect(p.matches(einkOnly)).toBe(true);
+    applyEinkModeAttribute(document, false);
+    expect(p.matches(einkOnly)).toBe(false);
+    p.remove();
   });
 });
 
@@ -243,6 +276,27 @@ describe('getThemeCode', () => {
     localStorage.setItem('systemIsDarkMode', 'false');
     const code = getThemeCode();
     expect(code.isDarkMode).toBe(false);
+  });
+
+  it('uses ambientIsDarkMode when themeMode is ambient', () => {
+    localStorage.setItem('themeMode', 'ambient');
+    localStorage.setItem('ambientIsDarkMode', 'true');
+    localStorage.setItem('systemIsDarkMode', 'false');
+    expect(getThemeCode().isDarkMode).toBe(true);
+
+    localStorage.setItem('ambientIsDarkMode', 'false');
+    expect(getThemeCode().isDarkMode).toBe(false);
+  });
+
+  // themeStore seeds ambientIsDarkMode from the system appearance until the
+  // first lux reading persists a value. getThemeCode has to agree, or the app
+  // chrome and the book content disagree on the very first launch in ambient
+  // mode.
+  it('falls back to systemIsDarkMode when no ambient reading was persisted', () => {
+    localStorage.setItem('themeMode', 'ambient');
+    localStorage.setItem('systemIsDarkMode', 'true');
+    localStorage.removeItem('ambientIsDarkMode');
+    expect(getThemeCode().isDarkMode).toBe(true);
   });
 
   it('falls back to default theme when custom themeColor not found', () => {
@@ -417,6 +471,33 @@ describe('getStyles', () => {
     expect(css).toContain('background-color: #ffffff !important');
     expect(css).toContain('color: #171717 !important');
   });
+
+  it('scopes the inline-image baseline default to its own class so author values win #4866', () => {
+    const vs = makeViewSettings();
+    const themeCode: ThemeCode = {
+      bg: '#ffffff',
+      fg: '#171717',
+      primary: '#0066cc',
+      palette: {
+        'base-100': '#ffffff',
+        'base-200': '#f2f2f2',
+        'base-300': '#e0e0e0',
+        'base-content': '#171717',
+        neutral: '#cccccc',
+        'neutral-content': '#444444',
+        primary: '#0066cc',
+        secondary: '#3399ff',
+        accent: '#0055aa',
+      },
+      isDarkMode: false,
+    };
+    const css = getStyles(vs, themeCode);
+    // Baseline is opt-in via a dedicated class, not forced on every inline image.
+    expect(css).toMatch(/img\.has-text-siblings-baseline\s*\{[^}]*vertical-align:\s*baseline/);
+    // The size-clamp rule must not carry vertical-align anymore.
+    const clampRule = css.match(/\n\s*img\.has-text-siblings\s*\{[^}]*\}/)![0];
+    expect(clampRule).not.toContain('vertical-align');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -478,6 +559,23 @@ describe('applyImageStyle', () => {
     applyImageStyle(document);
     const img = document.querySelector('img')!;
     expect(img.classList.contains('has-text-siblings')).toBe(false);
+  });
+
+  it('applies the baseline default when the image has no author vertical-align', () => {
+    document.body.innerHTML = '<p>Some text <img src="test.png" /> more text</p>';
+    applyImageStyle(document);
+    const img = document.querySelector('img')!;
+    expect(img.classList.contains('has-text-siblings')).toBe(true);
+    expect(img.classList.contains('has-text-siblings-baseline')).toBe(true);
+  });
+
+  it('respects an author-set vertical-align (no baseline default) #4866', () => {
+    document.body.innerHTML =
+      '<p>Some text <img src="test.png" style="vertical-align: -0.15em" /> more text</p>';
+    applyImageStyle(document);
+    const img = document.querySelector('img')!;
+    expect(img.classList.contains('has-text-siblings')).toBe(true);
+    expect(img.classList.contains('has-text-siblings-baseline')).toBe(false);
   });
 });
 

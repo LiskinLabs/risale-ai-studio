@@ -118,10 +118,7 @@ const TOCItemView = React.memo<{
       aria-selected={isActive ? 'true' : 'false'}
       data-href={item.href ? getContentMd5(item.href) : undefined}
       className={clsx(
-        'flex w-full cursor-pointer items-center rounded-md py-4 sm:py-2',
-        isActive
-          ? 'text-bold-in-eink sm:bg-base-300/65 sm:hover:bg-base-300/75 sm:text-base-content text-blue-500'
-          : 'sm:hover:bg-base-300/75',
+        'flex w-full cursor-pointer items-center rounded-md py-4 sm:py-2 sm:hover:bg-base-300/75',
       )}
       style={{
         height: itemSize ? `${itemSize}px` : 'auto',
@@ -144,18 +141,12 @@ const TOCItemView = React.memo<{
           {createExpanderIcon(flatItem.isExpanded || false)}
         </button>
       )}
-      <div
-        className='ms-2 truncate text-ellipsis'
-        style={{
-          maxWidth: 'calc(100% - 24px)',
-          whiteSpace: 'nowrap',
-          textOverflow: 'ellipsis',
-        }}
-      >
-        {item.label}
-      </div>
+      <div className='ms-2 min-w-0 break-words'>{item.label}</div>
       {(item.location || item.index !== undefined) && (
-        <div aria-hidden='true' className='text-base-content/50 ms-auto ps-1 text-xs sm:pe-1'>
+        <div
+          aria-hidden='true'
+          className='text-base-content/50 ms-auto shrink-0 ps-1 text-xs sm:pe-1'
+        >
           {item.location ? item.location.current + 1 : item.index + 1}
         </div>
       )}
@@ -240,7 +231,7 @@ export const CurrentPositionRow: React.FC<{
           'text-bold-in-eink sm:bg-base-300/65 sm:text-base-content text-blue-500',
           onClick && 'cursor-pointer sm:hover:bg-base-300/75',
         )}
-        style={{ paddingInlineStart: `${(depth + 1) * 12}px` }}
+        style={{ paddingInlineStart: `${depth * 12 + 8}px` }}
       >
         <FiBookOpen className='h-4 w-4 shrink-0' aria-hidden='true' />
         <div

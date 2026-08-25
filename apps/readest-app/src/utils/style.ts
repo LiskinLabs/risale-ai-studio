@@ -6,7 +6,7 @@ import {
   CJK_SANS_SERIF_FONTS,
   CJK_SERIF_FONTS,
 } from '@/services/constants';
-import { ViewSettings } from '@/types/book';
+import { BookFormat, FIXED_LAYOUT_FORMATS, ViewSettings } from '@/types/book';
 import {
   themes,
   Palette,
@@ -15,6 +15,8 @@ import {
   generateDarkPalette,
 } from '@/styles/themes';
 import { createFontCSS, CustomFont } from '@/styles/fonts';
+import { readStoredAmbientIsDarkMode } from './ambientLight';
+import { INLINE_FORMATTING_SELECTOR } from './inlineTags';
 import { getOSPlatform } from './misc';
 import { SCROLL_WRAPPER_CLASS, SCROLL_WRAPPER_FIT_CLASS } from './scrollable';
 
@@ -90,6 +92,16 @@ const getFontStyles = (
 ) => {
   const families = buildFontFamilyLists(serif, sansSerif, monospace, defaultCJKFont);
   const defaultFontFamily = defaultFont.toLowerCase() === 'serif' ? '--serif' : '--sans-serif';
+  // Normalize publisher body-copy sizes (the Readium CSS element set) so the
+  // configured font size applies even when the book sets explicit sizes on its
+  // paragraphs (#5420). Opt-in via "Override Book Font" since it also flattens
+  // intentional sizing on these elements. Fixed layouts are unaffected: their
+  // renderer has no setStyles, so this is only injected into reflowable docs.
+  const bodyFontSizeOverride = `
+    p, li, div, pre, dd {
+      font-size: max(1rem, var(--min-font-size, 8px)) !important;
+    }
+  `;
   const fontStyles = `
     html {
       --serif: ${families.serif};
@@ -140,10 +152,12 @@ const getFontStyles = (
     }
     pre, code, kbd {
       font-family: var(--monospace);
+      font-variant-ligatures: none;
     }
     body *:not(pre, code, kbd, .code):not(pre *, code *, kbd *, .code *) {
       ${overrideFont ? 'font-family: revert !important;' : ''}
     }
+    ${overrideFont ? bodyFontSizeOverride : ''}
   `;
   return fontStyles;
 };
@@ -263,9 +277,13 @@ const getColorStyles = (
     body.pbg {
       ${isDarkMode ? `background-color: ${bg} !important;` : ''}
     }
+    /* When inverting in dark mode, invert(100%) must stay the effective filter
+       (a later filter declaration would discard it), and multiply must not
+       apply: multiply with a dark page background erases the image (#5250). */
     img {
       ${isDarkMode && invertImgColorInDark ? 'filter: invert(100%);' : ''}
-      ${!isDarkMode && overrideColor ? 'mix-blend-mode: multiply;' : ''}
+      ${isDarkMode && !invertImgColorInDark && overrideColor ? 'filter: grayscale(100%) contrast(1.2) brightness(1.2);' : ''}
+      ${overrideColor && !(isDarkMode && invertImgColorInDark) ? 'mix-blend-mode: multiply;' : ''}
     }
     svg, img {
       ${overrideColor ? `background-color: transparent !important;` : ''};
@@ -290,9 +308,15 @@ const getColorStyles = (
     table:has(> colgroup) {
       table-layout: fixed;
     }
+    /* break-word, never anywhere: overflow-wrap:anywhere (and its legacy alias
+       word-break:break-word) count mid-word break opportunities in min-content
+       sizing, which drops every cell's minimum to a single character. Auto table
+       layout then hands the whole width to the widest column and shreds a short
+       label column into a stack of letters (#5681). break-word leaves intrinsic
+       sizes alone and still breaks a long token that overflows its cell; a table
+       too wide for its column scrolls in its wrapper instead (#4029, #4391). */
     td, th {
-      word-break: break-word;
-      overflow-wrap: anywhere;
+      overflow-wrap: break-word;
     }
     /* code */
     body.theme-dark code {
@@ -370,6 +394,13 @@ const getPageLayoutStyles = (
     zoom: ${zoomLevel};
     padding: unset;
     margin: unset;
+  }
+  /* -webkit-touch-callout on html/body does not reach descendant images in
+     Android WebView, and the native image callout collides with the reader's
+     touch handlers and can freeze the app */
+  img {
+    -webkit-touch-callout: none;
+    -webkit-user-drag: none;
   }
   svg:where(:not([width])), img:where(:not([width])) {
     width: auto;
@@ -470,6 +501,12 @@ const getPageLayoutStyles = (
   }
   img.has-text-siblings {
     ${vertical ? 'width: 1em;' : 'height: 1em;'}
+  }
+  /* Baseline is only Readest's default: applyImageStyle adds this class when the
+     book leaves vertical-align at its initial value, so an author-set value
+     (e.g. a CJK glyph-substitution image nudged with vertical-align: -0.15em)
+     keeps winning. See #4866. */
+  img.has-text-siblings-baseline {
     vertical-align: baseline;
   }
   :is(div) > img.has-text-siblings[style*="object-fit"] {
@@ -532,6 +569,12 @@ const getParagraphLayoutStyles = (
   html, body {
     text-align: var(--default-text-align);
   }
+  /* Authored text-wrap: pretty (e.g. Standard Ebooks' core.css) makes engines
+     that justify with it (Safari 26+, recent Chromium) overshoot inter-word
+     gaps and blocks the Word Spacing setting (#5582). Only the style longhand
+     is reset so an authored nowrap mode survives, and only on justified text
+     containers so balanced headings keep their rag. */
+  ${justify ? 'html, body, p, li, blockquote, dd { text-wrap-style: auto !important; }' : ''}
   [align="left"] { text-align: left; }
   [align="right"] { text-align: right; }
   [align="center"] { text-align: center; }
@@ -540,7 +583,13 @@ const getParagraphLayoutStyles = (
       text-align: unset;
       hyphens: unset;
   }
-  p, blockquote, dd, div:not(:has(*:not(b, a, em, i, strong, u, span))) {
+  /* The div clause treats a div as paragraph-like only when every descendant is
+     inline formatting (INLINE_FORMATTING_TAGS). Anything injected into a book
+     paragraph at runtime — the translation target, its preserved markup, the
+     a11y skip link — must use a tag from that list, or the enclosing div drops
+     this whole rule and reverts to the book's default line spacing, indent and
+     hyphenation. */
+  p, blockquote, dd, div:not(:has(*:not(${INLINE_FORMATTING_SELECTOR}))) {
     line-height: ${lineSpacing} ${overrideLayout ? '!important' : ''};
     word-spacing: ${wordSpacing}px ${overrideLayout ? '!important' : ''};
     letter-spacing: ${letterSpacing}px ${overrideLayout ? '!important' : ''};
@@ -710,6 +759,11 @@ const getTranslationStyles = (showSource: boolean) => `
   }
   .translation-target {
   }
+  /* The original is wrapped rather than erased so its CFIs stay resolvable;
+     cfi-skip keeps the wrapper invisible to CFI indexing. */
+  .translation-source-hidden {
+    display: none !important;
+  }
   .translation-target.hidden {
     display: none !important;
   }
@@ -752,7 +806,13 @@ const getWarichuStyles = () => `
   }
 `;
 
-const getRubyStyles = () => `
+// Word Lens gloss <rt> styling is user-configurable: the font size (relative to
+// the word, in em) and the color. An empty color keeps the default muted,
+// theme-adaptive look (inherit + 0.7 opacity); a set color paints at full opacity.
+const getRubyStyles = (viewSettings: ViewSettings) => {
+  const fontSize = viewSettings.wordLensGlossFontSize || 0.5;
+  const color = viewSettings.wordLensGlossColor || '';
+  return `
   rt {
     user-select: none;
     -webkit-user-select: none;
@@ -760,17 +820,18 @@ const getRubyStyles = () => `
   rp {
     display: none !important;
   }
-  ruby.ww-gloss {
+  ruby.wl-gloss {
     cursor: help;
   }
-  ruby.ww-gloss > rt {
-    font-size: 0.5em;
+  ruby.wl-gloss > rt {
+    font-size: ${fontSize}em;
     line-height: 1.1;
-    opacity: 0.7;
+    ${color ? `color: ${color};\n    opacity: 1;` : 'opacity: 0.7;'}
     font-weight: normal;
     text-align: center;
   }
 `;
+};
 
 export interface ThemeCode {
   bg: string;
@@ -784,14 +845,22 @@ export const getThemeCode = () => {
   let themeMode = 'auto';
   let themeColor = 'default';
   let systemIsDarkMode = false;
+  let ambientIsDarkMode = false;
   let customThemes: CustomTheme[] = [];
   if (typeof window !== 'undefined') {
     themeColor = localStorage.getItem('themeColor') || 'default';
     themeMode = localStorage.getItem('themeMode') || 'auto';
     systemIsDarkMode = localStorage.getItem('systemIsDarkMode') === 'true';
+    ambientIsDarkMode = readStoredAmbientIsDarkMode(
+      localStorage.getItem('ambientIsDarkMode'),
+      systemIsDarkMode,
+    );
     customThemes = JSON.parse(localStorage.getItem('customThemes') || '[]');
   }
-  const isDarkMode = themeMode === 'dark' || (themeMode === 'auto' && systemIsDarkMode);
+  const isDarkMode =
+    themeMode === 'dark' ||
+    (themeMode === 'auto' && systemIsDarkMode) ||
+    (themeMode === 'ambient' && ambientIsDarkMode);
   let currentTheme = themes.find((theme) => theme.name === themeColor);
   if (!currentTheme) {
     const customTheme = customThemes.find((theme) => theme.name === themeColor);
@@ -880,7 +949,7 @@ export const getStyles = (
   );
   const translationStyles = getTranslationStyles(viewSettings.showTranslateSource!);
   const warichuStyles = getWarichuStyles();
-  const rubyStyles = getRubyStyles();
+  const rubyStyles = getRubyStyles(viewSettings);
   const userStylesheet = viewSettings.userStylesheet!;
   // The `@namespace` declaration must lead the stylesheet: a `@namespace` rule
   // placed after any style or `@font-face` rule is invalid and silently ignored,
@@ -924,7 +993,18 @@ export const applyTranslationStyle = (viewSettings: ViewSettings) => {
   document.head.appendChild(styleElement);
 };
 
-export const transformStylesheet = (css: string, vw: number, vh: number, vertical: boolean) => {
+export const transformStylesheet = (
+  css: string,
+  vw: number,
+  vh: number,
+  vertical: boolean,
+  isFixedLayout = false,
+) => {
+  // Fixed-layout pages are authored against their own viewport: rescaling font
+  // sizes, resolving vw/vh against the reader viewport or repainting colors
+  // breaks the authored page. Leave them exactly as the book wrote them (#5649).
+  if (isFixedLayout) return css;
+
   const isMobile = ['ios', 'android'].includes(getOSPlatform());
   const fontScale = isMobile ? 1.25 : 1;
   const isInlineStyle = !css.includes('{');
@@ -1018,6 +1098,86 @@ export const transformStylesheet = (css: string, vw: number, vh: number, vertica
     return selector + block;
   });
 
+  // Fixed-attachment backgrounds anchor to the iframe viewport, which the
+  // paginator lays out as one huge multi-column strip and moves with
+  // transforms, so the image lands far from its element and Blink smears the
+  // text painted over it (#5711). Inside a transformed subtree the spec
+  // demands scroll behavior anyway, so rewrite fixed to scroll. url() tokens
+  // are masked across the sheet before the declaration split: an unquoted
+  // data URI may contain semicolons that would end the declaration match
+  // early, and a quoted url may contain closing parens or the word fixed.
+  // Remaining function tokens (var(), gradients) are masked per value so a
+  // custom property like var(--fixed) is not rewritten either.
+  const urlTokens: string[] = [];
+  css = css.replace(/url\(\s*(?:"[^"]*"|'[^']*'|[^)]*)\s*\)/gi, (url) => {
+    urlTokens.push(url);
+    return `READEST_URL_${urlTokens.length - 1}_PLACEHOLDER`;
+  });
+  css = css.replace(
+    /((?:^|[{;\s])background(?:-attachment)?\s*:)([^;{}]*)/gi,
+    (match, prop: string, value: string) => {
+      if (!/\bfixed\b/i.test(value)) return match;
+      const fns: string[] = [];
+      const masked = value.replace(/[\w-]*\([^)]*\)/g, (fn) => {
+        fns.push(fn);
+        return `READEST_FN_${fns.length - 1}_PLACEHOLDER`;
+      });
+      const rewritten = masked.replace(/\bfixed\b/gi, 'scroll');
+      return prop + rewritten.replace(/READEST_FN_(\d+)_PLACEHOLDER/g, (_, i) => fns[+i]!);
+    },
+  );
+  css = css.replace(/READEST_URL_(\d+)_PLACEHOLDER/g, (_, i) => urlTokens[+i]!);
+
+  // Books authored for Duokan fake full-bleed bands with negative horizontal
+  // margins sized to Duokan's fixed 2em page padding. Columns are not clipped,
+  // so any overhang past the column box paints onto the adjacent page (#5711).
+  // Duokan's layout does not exist here, so drop the trick: zero each
+  // horizontal margin whose resolved value is negative on rules that also
+  // paint a background (hanging indents keep their layout). The band stops at
+  // the column edge instead of full-bleeding, the same rendering the issue
+  // reporter picked as their custom-CSS workaround.
+  if (!vertical) {
+    css = css.replace(ruleRegex, (match, selector, block: string) => {
+      const bgValues = [
+        ...block.matchAll(/(?:^|[^-a-z])background(?:-color|-image)?\s*:\s*([^;!}]+)/gi),
+      ].map((m) => m[1]!.trim());
+      const paints = bgValues.some(
+        (v) =>
+          !/^(?:none|transparent)$/i.test(v) &&
+          !/^(?:rgba|hsla)\([^)]*[,\s]0(?:\.0+)?\s*\)$/i.test(v),
+      );
+      if (!paints) return match;
+      // Resolve each side's final value in declaration order; the shorthand
+      // sets both sides. !important precedence between declarations of the
+      // same block is ignored: getting it wrong can only leave an authored
+      // negative margin in place, never break a valid layout.
+      let left = '';
+      let right = '';
+      for (const decl of block.matchAll(/(?:^|[^-a-z])margin(-left|-right)?\s*:\s*([^;!}]+)/gi)) {
+        const side = decl[1];
+        const value = decl[2]!.trim();
+        if (side === '-left') {
+          left = value;
+        } else if (side === '-right') {
+          right = value;
+        } else {
+          // calc()/var() shorthands are too ambiguous to split on whitespace
+          if (value.includes('(')) continue;
+          const parts = value.split(/\s+/);
+          if (parts.length < 1 || parts.length > 4) continue;
+          const [top, r = top!, , l = r] = parts;
+          right = r!;
+          left = l;
+        }
+      }
+      const overrides =
+        (left.startsWith('-') ? ' margin-left: 0 !important;' : '') +
+        (right.startsWith('-') ? ' margin-right: 0 !important;' : '');
+      if (!overrides) return match;
+      return selector + block.replace(/}$/, `${overrides} }`);
+    });
+  }
+
   // unset font-family for body when set to serif or sans-serif
   css = css.replace(ruleRegex, (_, selector, block) => {
     if (/\bbody\b/i.test(selector)) {
@@ -1079,10 +1239,17 @@ export const transformStylesheet = (css: string, vw: number, vh: number, vertica
     .replace(/([\s;])-ms-user-select\s*:\s*none/gi, '$1-ms-user-select: unset')
     .replace(/([\s;])-o-user-select\s*:\s*none/gi, '$1-o-user-select: unset')
     .replace(/([\s;])user-select\s*:\s*none/gi, '$1user-select: unset')
+    // Park the `var(--x, x)` chunks an earlier pass already produced: their
+    // inner keywords would otherwise be rewritten again into
+    // `var(--var(--serif, serif), serif)`, which is invalid, so the CSS parser
+    // drops the whole declaration and the book loses its fonts (readest#5277).
+    // The placeholders are underscore-wrapped so `\b` never matches inside them.
+    .replace(/var\(\s*--(sans-serif|serif|monospace)\s*,\s*\1\s*\)/gi, 'READEST_GF_$1_PLACEHOLDER')
     .replace(/(font-family\s*:[^;]*?)\bsans-serif\b/gi, '$1READEST_SS_PLACEHOLDER')
     .replace(/(font-family\s*:[^;]*?)\bserif\b(?!-)/gi, '$1var(--serif, serif)')
     .replace(/READEST_SS_PLACEHOLDER/g, 'var(--sans-serif, sans-serif)')
     .replace(/(font-family\s*:[^;]*?)\bmonospace\b/gi, '$1var(--monospace, monospace)')
+    .replace(/READEST_GF_(sans-serif|serif|monospace)_PLACEHOLDER/gi, 'var(--$1, $1)')
     .replace(/([\s;])font-weight\s*:\s*normal/gi, '$1font-weight: var(--font-weight)')
     .replace(/([\s;])color\s*:\s*black/gi, '$1color: var(--theme-fg-color)')
     .replace(/([\s;])color\s*:\s*#000000/gi, '$1color: var(--theme-fg-color)')
@@ -1118,6 +1285,19 @@ export const applyScrollModeClass = (document: Document, isScrollMode: boolean) 
 };
 
 /**
+ * Mirror the top document's `data-eink` onto the book document so a user
+ * stylesheet can branch on screen type (#5795). `userStylesheet` is in
+ * SETTINGS_WHITELIST and syncs across devices, while `isEink` is per-device;
+ * without this attribute an e-ink readability tweak (say a text stroke to
+ * thicken a light CJK face) also lands on the user's phone and desktop.
+ * Both values are written, matching useEinkMode, so `html[data-eink='false']`
+ * can carry the LCD-only half of a rule.
+ */
+export const applyEinkModeAttribute = (document: Document, isEink: boolean) => {
+  document.documentElement.setAttribute('data-eink', isEink ? 'true' : 'false');
+};
+
+/**
   @param document should be the global `document`
 */
 export const applyScrollbarStyle = (document: Document, hideScrollbar: boolean) => {
@@ -1139,37 +1319,60 @@ export const applyScrollbarStyle = (document: Document, hideScrollbar: boolean) 
 };
 
 export const applyImageStyle = (document: Document) => {
-  document.querySelectorAll('img').forEach((img) => {
+  const win = document.defaultView ?? window;
+  // Two-phase (read then write): reading getComputedStyle after a class/style
+  // write forces a style recalc, so gather every decision first and apply the
+  // mutations afterwards (same reasoning as keepTextAlignment's split).
+  const plans = Array.from(document.querySelectorAll('img')).map((img) => {
     const widthAttr = img.getAttribute('width');
-    if (widthAttr && (widthAttr.endsWith('%') || widthAttr.endsWith('vw'))) {
-      const percentage = parseFloat(widthAttr);
-      if (!isNaN(percentage)) {
-        img.style.width = `${(percentage / 100) * window.innerWidth}px`;
-        img.removeAttribute('width');
-      }
-    }
-
+    const percentWidth =
+      widthAttr && (widthAttr.endsWith('%') || widthAttr.endsWith('vw'))
+        ? parseFloat(widthAttr)
+        : NaN;
     const heightAttr = img.getAttribute('height');
-    if (heightAttr && (heightAttr.endsWith('%') || heightAttr.endsWith('vh'))) {
-      const percentage = parseFloat(heightAttr);
-      if (!isNaN(percentage)) {
-        img.style.height = `${(percentage / 100) * window.innerHeight}px`;
-        img.removeAttribute('height');
+    const percentHeight =
+      heightAttr && (heightAttr.endsWith('%') || heightAttr.endsWith('vh'))
+        ? parseFloat(heightAttr)
+        : NaN;
+
+    let inlineWithText = false;
+    let keepBaseline = false;
+    const parent = img.parentNode;
+    if (parent && parent.nodeType === Node.ELEMENT_NODE) {
+      const childNodes = Array.from(parent.childNodes);
+      const hasTextSiblings = childNodes.some(
+        (node) => node.nodeType === Node.TEXT_NODE && node.textContent?.trim(),
+      );
+      const isInline = childNodes.every(
+        (node) => node.nodeType !== Node.ELEMENT_NODE || (node as Element).tagName !== 'BR',
+      );
+      inlineWithText = hasTextSiblings && isInline;
+      if (inlineWithText) {
+        // Only supply Readest's baseline default when the book leaves
+        // vertical-align at its initial value; an author-set value (e.g. a CJK
+        // glyph-substitution image nudged with `vertical-align: -0.15em`) must
+        // win. Empty string covers environments that report unset props as ''.
+        const valign = win.getComputedStyle(img).verticalAlign;
+        keepBaseline = valign === '' || valign === 'baseline';
       }
     }
-
-    const parent = img.parentNode;
-    if (!parent || parent.nodeType !== Node.ELEMENT_NODE) return;
-    const hasTextSiblings = Array.from(parent.childNodes).some(
-      (node) => node.nodeType === Node.TEXT_NODE && node.textContent?.trim(),
-    );
-    const isInline = Array.from(parent.childNodes).every(
-      (node) => node.nodeType !== Node.ELEMENT_NODE || (node as Element).tagName !== 'BR',
-    );
-    if (hasTextSiblings && isInline) {
-      img.classList.add('has-text-siblings');
-    }
+    return { img, percentWidth, percentHeight, inlineWithText, keepBaseline };
   });
+
+  for (const { img, percentWidth, percentHeight, inlineWithText, keepBaseline } of plans) {
+    if (!isNaN(percentWidth)) {
+      img.style.width = `${(percentWidth / 100) * window.innerWidth}px`;
+      img.removeAttribute('width');
+    }
+    if (!isNaN(percentHeight)) {
+      img.style.height = `${(percentHeight / 100) * window.innerHeight}px`;
+      img.removeAttribute('height');
+    }
+    if (inlineWithText) {
+      img.classList.add('has-text-siblings');
+      if (keepBaseline) img.classList.add('has-text-siblings-baseline');
+    }
+  }
   document.querySelectorAll('hr').forEach((hr) => {
     const computedStyle = window.getComputedStyle(hr);
     if (computedStyle.backgroundImage && computedStyle.backgroundImage !== 'none') {
@@ -1219,14 +1422,25 @@ export const applyFixedlayoutStyles = (
   document: Document,
   viewSettings: ViewSettings,
   themeCode?: ThemeCode,
+  format?: BookFormat,
 ) => {
   if (!themeCode) {
     themeCode = getThemeCode();
   }
   const { bg, fg, primary, isDarkMode } = themeCode;
+  // PDF and comic pages are rendered by the app, so they take the theme colors.
+  // Fixed-layout EPUB pages are authored by the book: theming the page repaints
+  // the background the book drew and, because a dark color scheme also swaps the
+  // browser default text color, recolors text the book never colored (#5649).
+  const appRendered = !format || FIXED_LAYOUT_FORMATS.has(format);
   const isEink = viewSettings.isEink;
   const overrideColor = viewSettings.overrideColor!;
   const invertImgColorInDark = viewSettings.invertImgColorInDark!;
+  const contrast = viewSettings.contrast ?? 100;
+  const imgFilters: string[] = [];
+  if (isDarkMode && invertImgColorInDark) imgFilters.push('invert(100%)');
+  if (contrast !== 100) imgFilters.push(`contrast(${contrast}%)`);
+  const imgFilter = imgFilters.length ? `filter: ${imgFilters.join(' ')};` : '';
   const darkMixBlendMode = bg === '#000000' ? 'luminosity' : 'overlay';
   const existingStyleId = 'fixed-layout-styles';
   let style = document.getElementById(existingStyleId) as HTMLStyleElement;
@@ -1240,11 +1454,15 @@ export const applyFixedlayoutStyles = (
       --theme-bg-color: ${bg};
       --theme-fg-color: ${fg};
       --theme-primary-color: ${primary};
-      color-scheme: ${isDarkMode ? 'dark' : 'light'};
+      color-scheme: ${appRendered && isDarkMode ? 'dark' : 'light'};
+      /* Chrome for Android's text autosizing rescales line metrics and shifts
+         absolutely positioned per-letter text in fixed-layout books (#5641). */
+      -webkit-text-size-adjust: none;
+      text-size-adjust: none;
     }
     body {
       position: relative;
-      background-color: var(--theme-bg-color);
+      ${appRendered ? 'background-color: var(--theme-bg-color);' : ''}
     }
     ${isEink ? getEinkSelectionStyles() : ''}
     #canvas {
@@ -1254,7 +1472,7 @@ export const applyFixedlayoutStyles = (
       background-color: var(--theme-bg-color);
     }
     img, canvas {
-      ${isDarkMode && invertImgColorInDark ? 'filter: invert(100%);' : ''}
+      ${imgFilter}
       ${overrideColor ? `mix-blend-mode: ${isDarkMode ? darkMixBlendMode : 'multiply'};` : ''}
     }
     img.singlePage {

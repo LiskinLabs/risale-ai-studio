@@ -227,6 +227,84 @@ describe('ProofreadPopup Component', () => {
     });
   });
 
+  describe('Regex Toggle', () => {
+    it('should render the regex checkbox (off by default)', () => {
+      renderWithProviders(<ProofreadPopup {...defaultProps} />);
+
+      const regexLabel = screen.getByText('Regex:');
+      expect(regexLabel).toBeTruthy();
+      const checkbox = regexLabel
+        .closest('label')!
+        .querySelector('input[type="checkbox"]') as HTMLInputElement | null;
+      expect(checkbox).toBeTruthy();
+      expect(checkbox!.checked).toBe(false);
+    });
+
+    it('should call onConfirm with isRegex true when regex is enabled', async () => {
+      renderWithProviders(<ProofreadPopup {...defaultProps} />);
+
+      const regexLabel = screen.getByText('Regex:');
+      const regexCheckbox = regexLabel
+        .closest('label')!
+        .querySelector('input[type="checkbox"]') as HTMLInputElement;
+      fireEvent.click(regexCheckbox);
+
+      const input = screen.getByPlaceholderText('Enter text...');
+      fireEvent.change(input, { target: { value: 'replacement' } });
+
+      const applyButton = screen.getByText('Apply');
+      fireEvent.click(applyButton);
+
+      await waitFor(() => {
+        expect(mockOnConfirm).toHaveBeenCalledWith(expect.objectContaining({ isRegex: true }));
+      });
+    });
+
+    it('should default isRegex to false when the toggle is left off', async () => {
+      renderWithProviders(<ProofreadPopup {...defaultProps} />);
+
+      const input = screen.getByPlaceholderText('Enter text...');
+      fireEvent.change(input, { target: { value: 'replacement' } });
+
+      const applyButton = screen.getByText('Apply');
+      fireEvent.click(applyButton);
+
+      await waitFor(() => {
+        expect(mockOnConfirm).toHaveBeenCalledWith(expect.objectContaining({ isRegex: false }));
+      });
+    });
+  });
+
+  /**
+   * `Popup` caps the popup at the space available above the selection. When the
+   * selection sits near the top of the viewport that cap can be shorter than the
+   * form, and with `overflow: visible` the excess simply painted outside the
+   * rounded box: the scope row (the last child) hung past the bottom edge.
+   *
+   * Invariant: the scope row is pinned outside the scrollable region, so the
+   * upper content absorbs any shortfall and the scope select stays reachable.
+   */
+  describe('Constrained Popup Height', () => {
+    it('pins the scope row outside the scrollable region so it cannot overflow', () => {
+      const { container } = renderWithProviders(<ProofreadPopup {...defaultProps} />);
+
+      const select = container.querySelector('select') as HTMLSelectElement;
+      const scopeRow = select.closest('div') as HTMLElement;
+      expect(scopeRow.className).toContain('shrink-0');
+
+      const scrollArea = container.querySelector('.overflow-y-auto');
+      expect(scrollArea).not.toBeNull();
+      expect(scrollArea!.contains(select)).toBe(false);
+    });
+
+    it('clips the popup surface so no child paints past the rounded box', () => {
+      const { container } = renderWithProviders(<ProofreadPopup {...defaultProps} />);
+
+      const popup = container.querySelector('.popup-container') as HTMLElement;
+      expect(popup.className).toContain('overflow-hidden');
+    });
+  });
+
   describe('Click Outside Behavior', () => {
     it('should not call onClose when clicking inside the menu', () => {
       renderWithProviders(<ProofreadPopup {...defaultProps} />);

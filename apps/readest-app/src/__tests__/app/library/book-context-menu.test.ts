@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { getBookContextMenuItemIds } from '@/app/library/utils/libraryUtils';
+import { buildFeedBookUrl } from '@/services/rss/feedBookUrl';
 import { Book } from '@/types/book';
 
 const createBook = (overrides: Partial<Book> = {}): Book => ({
@@ -20,6 +21,7 @@ describe('getBookContextMenuItemIds', () => {
       'select',
       'group',
       'markFinished',
+      'markAbandoned',
       'showDetails',
       'showInFinder',
       'searchGoodreads',
@@ -29,12 +31,22 @@ describe('getBookContextMenuItemIds', () => {
     ]);
   });
 
-  it('shows "Mark as Unread" + "Clear Status" for a finished book', () => {
+  it('offers sendNearby for a local book only when LocalSend is enabled', () => {
+    const local = createBook({ downloadedAt: 1 });
+    expect(getBookContextMenuItemIds(local, { localSend: true })).toContain('sendNearby');
+    expect(getBookContextMenuItemIds(local)).not.toContain('sendNearby');
+    // Cloud-only books have no local file to send.
+    const cloudOnly = createBook({ uploadedAt: 1 });
+    expect(getBookContextMenuItemIds(cloudOnly, { localSend: true })).not.toContain('sendNearby');
+  });
+
+  it('shows markUnread + markAbandoned + clearStatus for a finished book', () => {
     const book = createBook({ downloadedAt: 1, readingStatus: 'finished' });
     expect(getBookContextMenuItemIds(book)).toEqual([
       'select',
       'group',
       'markUnread',
+      'markAbandoned',
       'clearStatus',
       'showDetails',
       'showInFinder',
@@ -47,6 +59,23 @@ describe('getBookContextMenuItemIds', () => {
 
   it('shows "Mark as Finished" + "Clear Status" for an unread book', () => {
     const book = createBook({ downloadedAt: 1, readingStatus: 'unread' });
+    expect(getBookContextMenuItemIds(book)).toEqual([
+      'select',
+      'group',
+      'markFinished',
+      'markAbandoned',
+      'clearStatus',
+      'showDetails',
+      'showInFinder',
+      'searchGoodreads',
+      'upload',
+      'share',
+      'delete',
+    ]);
+  });
+
+  it('hides markAbandoned but offers markFinished + clearStatus for an abandoned book', () => {
+    const book = createBook({ downloadedAt: 1, readingStatus: 'abandoned' });
     expect(getBookContextMenuItemIds(book)).toEqual([
       'select',
       'group',
@@ -67,6 +96,7 @@ describe('getBookContextMenuItemIds', () => {
       'select',
       'group',
       'markFinished',
+      'markAbandoned',
       'showDetails',
       'showInFinder',
       'searchGoodreads',
@@ -82,6 +112,27 @@ describe('getBookContextMenuItemIds', () => {
       'select',
       'group',
       'markFinished',
+      'markAbandoned',
+      'showDetails',
+      'showInFinder',
+      'searchGoodreads',
+      'delete',
+    ]);
+  });
+
+  // Issue #5307 — a feed subscription has no file anywhere: the cloud has
+  // nothing to upload it to and nothing to hand a share link. Offering those
+  // actions only produces a failed transfer.
+  it('omits download/upload/share for a feed book (issue #5307)', () => {
+    const book = createBook({
+      downloadedAt: 1,
+      url: buildFeedBookUrl('https://www.saastr.com/feed/'),
+    });
+    expect(getBookContextMenuItemIds(book)).toEqual([
+      'select',
+      'group',
+      'markFinished',
+      'markAbandoned',
       'showDetails',
       'showInFinder',
       'searchGoodreads',
