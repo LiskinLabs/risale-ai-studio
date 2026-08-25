@@ -49,7 +49,7 @@ export class DeepSeekProvider implements AIProvider {
 
     // Build headers with thinking mode if enabled.
     const extraHeaders: Record<string, string> = {
-      'HTTP-Referer': 'https://risale-ai-studio.com',
+      'HTTP-Referer': 'https://github.com/LiskinLabs/risale-ai-studio',
       'X-Title': 'Risale AI Studio',
     };
 

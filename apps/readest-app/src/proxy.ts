@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 const allowedOrigins = [
-  'https://web.risale-ai-studio.com',
   'https://tauri.localhost',
   'http://tauri.localhost',
   'http://localhost:3000',
