@@ -146,7 +146,15 @@ class CursorAutohider {
     cloneFor(el) {
         return new CursorAutohider(el, this.#check, this.#state)
     }
+    #hasSelection() {
+        const selection = this.#el.ownerDocument?.getSelection()
+        return selection ? !selection.isCollapsed : false
+    }
     hide() {
+        // The pointer is what the reader aims a selection with, so leave it
+        // alone while one stands: a paused drag, or a double-click word
+        // select (which fires no mousemove at all), would otherwise blank it.
+        if (this.#hasSelection()) return
         this.#el.style.cursor = 'none'
         this.#state.hidden = true
     }
@@ -585,18 +593,25 @@ export class View extends HTMLElement {
     goRight() {
         return this.book.dir === 'rtl' ? this.prev() : this.next()
     }
+    // A matcher result carries a primary `range` (nav/excerpt anchor) and, for
+    // nearby-words, per-word `subRanges` to highlight each matched word.
+    #toSearchMatch(index, { range, excerpt, subRanges }) {
+        const cfi = this.getCFI(index, range)
+        if (subRanges?.length)
+            return { cfi, cfis: subRanges.map(r => this.getCFI(index, r)), excerpt }
+        return { cfi, excerpt }
+    }
     async * #searchSection(matcher, query, index) {
         const doc = await this.book.sections[index].createDocument()
-        for (const { range, excerpt } of matcher(doc, query))
-            yield { cfi: this.getCFI(index, range), excerpt }
+        for (const match of matcher(doc, query))
+            yield this.#toSearchMatch(index, match)
     }
     async * #searchBook(matcher, query) {
         const { sections } = this.book
         for (const [index, { createDocument }] of sections.entries()) {
             if (!createDocument) continue
             const doc = await createDocument()
-            const subitems = Array.from(matcher(doc, query), ({ range, excerpt }) =>
-                ({ cfi: this.getCFI(index, range), excerpt }))
+            const subitems = Array.from(matcher(doc, query), match => this.#toSearchMatch(index, match))
             const progress = (index + 1) / sections.length
             yield { progress }
             if (subitems.length) yield { index, subitems }
@@ -618,7 +633,7 @@ export class View extends HTMLElement {
                         yield { progress }
                         yield { index: result.index, subitems: result.subitems }
                     } else {
-                        yield { cfi: result.cfi, excerpt: result.excerpt }
+                        yield { cfi: result.cfi, cfis: result.cfis, excerpt: result.excerpt }
                     }
                 }
             })()
@@ -627,14 +642,27 @@ export class View extends HTMLElement {
                 : this.#searchBook(matcher, query)
 
         const list = []
+        const seen = new Set()
         this.#searchResults.set(index, list)
+        // Add one annotation per unique CFI (a nearby-words match carries several
+        // via `cfis`); dedupe so overlapping CFIs don't collide in #searchResults.
+        const addHighlights = (cfis, sink, sinkSeen) => {
+            for (const cfi of cfis) {
+                if (sinkSeen.has(cfi)) continue
+                sinkSeen.add(cfi)
+                const item = { value: SEARCH_PREFIX + cfi }
+                sink.push(item)
+                this.addAnnotation(item)
+            }
+        }
 
         for await (const result of iter) {
             if (result.subitems){
-                const list = result.subitems
-                    .map(({ cfi }) => ({ value: SEARCH_PREFIX + cfi }))
-                this.#searchResults.set(result.index, list)
-                for (const item of list) this.addAnnotation(item)
+                const sectionList = []
+                const sectionSeen = new Set()
+                for (const item of result.subitems)
+                    addHighlights(item.cfis ?? [item.cfi], sectionList, sectionSeen)
+                this.#searchResults.set(result.index, sectionList)
                 yield {
                     index: result.index,
                     label: this.#tocProgress?.getProgress(result.index)?.label ?? '',
@@ -642,11 +670,7 @@ export class View extends HTMLElement {
                 }
             }
             else {
-                if (result.cfi) {
-                    const item = { value: SEARCH_PREFIX + result.cfi }
-                    list.push(item)
-                    this.addAnnotation(item)
-                }
+                if (result.cfi) addHighlights(result.cfis ?? [result.cfi], list, seen)
                 yield result
             }
         }

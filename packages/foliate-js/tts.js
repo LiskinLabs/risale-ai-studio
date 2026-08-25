@@ -70,8 +70,16 @@ const fragmentToSSML = (fragment, nodeFilter, inherited) => {
 
     const convert = (node, parent, inheritedAlphabet) => {
         if (!node) return
-        if (node.nodeType === 3) return ssml.createTextNode(node.textContent)
-        if (node.nodeType === 4) return ssml.createCDATASection(node.textContent)
+        // Text nodes go through the filter too: the text walker that produces
+        // the marks already honours it, and content that is skipped there (a
+        // bare ruby base inside <ruby>, say) must not reach the speech either,
+        // or the two disagree about what is being read.
+        if (node.nodeType === 3 || node.nodeType === 4) {
+            if (nodeFilter && nodeFilter(node) === NodeFilter.FILTER_REJECT) return
+            return node.nodeType === 3
+                ? ssml.createTextNode(node.textContent)
+                : ssml.createCDATASection(node.textContent)
+        }
         if (node.nodeType !== 1 && node.nodeType !== 11) return
         if (nodeFilter && nodeFilter(node) === NodeFilter.FILTER_REJECT) return
 
@@ -263,6 +271,21 @@ function* getBlocks(doc, nodeFilter) {
     }
 }
 
+// Enumerate every TTS segment of the document in order without touching any
+// TTS instance state. blockIndex/markName match what a TTS instance produces
+// for the same granularity, so callers (e.g. a playback timeline) can
+// correlate the enumeration with live marks and use each range with from().
+export function* getSentences(doc, textWalker, nodeFilter, granularity = 'sentence') {
+    let blockIndex = 0
+    for (const range of getBlocks(doc, nodeFilter)) {
+        const lang = getLang(range.commonAncestorContainer)
+        const segmenter = getSegmenter(lang, granularity)
+        for (const [name, segRange] of textWalker(range, segmenter, nodeFilter))
+            yield { blockIndex, markName: name, range: segRange }
+        blockIndex++
+    }
+}
+
 class ListIterator {
     #arr = []
     #iter
@@ -451,12 +474,15 @@ export class TTS {
         this.#lastMark = null
         const [doc] = this.#list.find(range_ =>
             range.compareBoundaryPoints(Range.END_TO_START, range_) <= 0)
+        // Pick the mark whose sentence contains the selection: the last mark
+        // that begins at or before it. Taking the first mark beginning at or
+        // after the selection skipped to the next sentence whenever the
+        // selected word was not its sentence's first word.
         let mark
-        for (const [name, range_] of this.#ranges.entries())
-            if (range.compareBoundaryPoints(Range.START_TO_START, range_) <= 0) {
-                mark = name
-                break
-            }
+        for (const [name, range_] of this.#ranges.entries()) {
+            if (range.compareBoundaryPoints(Range.START_TO_START, range_) < 0) break
+            mark = name
+        }
         return this.#speak(doc, ssml => this.#getMarkElement(ssml, mark))
     }
     getLastRange() {

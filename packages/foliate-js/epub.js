@@ -92,16 +92,28 @@ const childGetter = (doc, ns) => {
     }
 }
 
+// Zip entry names are raw, so a resolved href has to be fully decoded to match
+// one. `decodeURI()` can't do it: by spec it preserves the reserved set
+// (`; / ? : @ & = + $ , #`), leaving an entry named `a&b.html` unreachable
+// behind its manifest href `a%26b.html`. Decode as a component instead, keeping
+// only `/` and `#` encoded, which would otherwise turn into a path or fragment
+// separator. Malformed escapes (a bare `%` in a name) decode to themselves.
+const decodeURIPath = path => {
+    try {
+        return decodeURIComponent(path.replace(/%(2f|23)/gi, '%25$1'))
+    } catch {
+        return path
+    }
+}
+
 const resolveURL = (url, relativeTo) => {
     try {
-        // replace %2c in the url with a comma, this might be introduced by calibre
-        url = url.replace(/%2c/gi, ',').replace(/%3a/gi, ':')
-        if (relativeTo.includes(':') && !relativeTo.startsWith('OEBPS')) return new URL(url, relativeTo)
+        if (isExternal(relativeTo)) return new URL(url, relativeTo)
         // the base needs to be a valid URL, so set a base URL and then remove it
         const root = 'https://invalid.invalid/'
         const obj = new URL(url, root + relativeTo)
         obj.search = ''
-        return decodeURI(obj.href.replace(root, ''))
+        return decodeURIPath(obj.href.replace(root, ''))
     } catch(e) {
         console.warn(e)
         return url
@@ -170,6 +182,47 @@ const getPropertyURL = (value, prefixes) => {
     const reference = b ? b : a
     const baseURL = prefixes.get(prefix)
     return baseURL ? baseURL + reference : null
+}
+
+// See the call site in getMetadata() for the two calibre encodings this reads.
+const getCalibreUserMetadata = (metaEls, legacyMeta) => {
+    // calibre's to_json wraps non-JSON types; only datetime appears in columns
+    const fromJSON = x => x?.__class__ === 'datetime.datetime' ? x.__value__ : x
+    const isEmpty = (value, datatype) => value == null || value === ''
+        || Array.isArray(value) && !value.length
+        // calibre can't distinguish these from unset, and neither can we
+        || datatype === 'datetime' && String(value).startsWith('0101-01-01')
+        || datatype === 'rating' && !value
+    const columns = []
+    const add = (key, fm) => {
+        if (!key?.startsWith('#') || typeof fm !== 'object' || !fm) return
+        const datatype = fm.datatype ?? 'text'
+        const value = fromJSON(fm['#value#'])
+        if (isEmpty(value, datatype)) return
+        const extra = fromJSON(fm['#extra#'])
+        const label = key.slice(1)
+        columns.push({
+            label,
+            name: typeof fm.name === 'string' && fm.name ? fm.name : label,
+            datatype, value,
+            ...extra != null ? { extra } : {},
+        })
+    }
+    for (const el of metaEls ?? []) {
+        if (el.getAttribute('property')?.toLowerCase() !== 'calibre:user_metadata') continue
+        try {
+            for (const [key, fm] of Object.entries(JSON.parse(getElementText(el))))
+                add(key, fm)
+        } catch {}
+    }
+    if (!columns.length)
+        for (const [name, content] of Object.entries(legacyMeta ?? {})) {
+            if (!name.startsWith('calibre:user_metadata:')) continue
+            try {
+                add(name.slice('calibre:user_metadata:'.length), JSON.parse(content))
+            } catch {}
+        }
+    return columns.length ? columns : null
 }
 
 const getMetadata = opf => {
@@ -307,6 +360,19 @@ const getMetadata = opf => {
     tidy(metadata)
     if (metadata.altIdentifier === metadata.identifier)
         delete metadata.altIdentifier
+    // Calibre embeds its custom columns ("user metadata") when polishing or
+    // sending books. Two encodings (see calibre's opf2.py/opf3.py):
+    //   OPF 2: <meta name="calibre:user_metadata:#label" content="{json}"/> per column
+    //   OPF 3: a single <meta property="calibre:user_metadata"> whose text is
+    //          a JSON dict of all columns keyed by "#label"; calibre prefers
+    //          this form over the legacy metas when both are present
+    // The column value lives in `#value#` (series index in `#extra#`);
+    // datetimes are wrapped as {"__class__": "datetime.datetime",
+    // "__value__": <ISO>} with 0101-01-01 meaning unset. Embedded files carry
+    // every column of the library, so empty values are dropped here. Must run
+    // after tidy(), which would otherwise collapse single-element value arrays.
+    const calibreColumns = getCalibreUserMetadata(els.meta, legacyMeta)
+    if (calibreColumns) metadata.calibreColumns = calibreColumns
 
     const rendition = {}
     const media = {}
@@ -411,6 +477,7 @@ const getImageMediaType = (path) => {
         'png': 'image/png',
         'gif': 'image/gif',
         'webp': 'image/webp',
+        'svg': 'image/svg+xml',
     }
     return mediaTypeMap[extension] || 'image/jpeg'
 }
@@ -424,6 +491,19 @@ const getFontMediaType = (path) => {
         'otf': 'font/otf',
     }
     return mediaTypeMap[extension] || 'font/ttf'
+}
+
+// Container entry whose file name ends in `cover`/`couv` (the French
+// spelling) plus an image extension, e.g. `cover.jpg`, `Images/Cover.PNG`,
+// `couv.jpeg`. Same shape `gnome-epub-thumbnailer` falls back to.
+const UNDECLARED_COVER_RE = /(?:cover|couv)\.(?:jpe?g|png|gif|webp|svg)$/i
+
+// Last-ditch cover lookup for EPUBs where the manifest resolves to nothing:
+// scan the container's own file names. `names` is iterated in central
+// directory order, so the first match wins.
+const findUndeclaredCover = names => {
+    for (const name of names) if (UNDECLARED_COVER_RE.test(name)) return name
+    return null
 }
 
 class MediaOverlay extends EventTarget {
@@ -805,6 +885,19 @@ class Loader {
         return url
     }
     ref(href, parent) {
+        // A top-level load -- a view opening a section -- has no parent
+        // document to hang the reference on, and is released by exactly one
+        // `unloadItem`, so it must always be counted. Recording it under an
+        // absent parent instead put every top-level load in the book into one
+        // shared `#children` bucket that nothing ever cleared, so the second
+        // view to open an already-loaded section (a footnote popup, which
+        // opens another view on the same book) skipped its increment yet still
+        // decremented on close. The count underflowed to zero and revoked the
+        // section along with its images while a view was still showing them.
+        if (!parent) {
+            this.#refCount.set(href, this.#refCount.get(href) + 1)
+            return this.#cache.get(href)
+        }
         const childList = this.#children.get(parent)
         if (!childList?.includes(href)) {
             this.#refCount.set(href, this.#refCount.get(href) + 1)
@@ -857,7 +950,11 @@ class Loader {
         return this.createURL(href, tryLoadBlob, mediaType, parent)
     }
     async loadItemXHTMLContent(item, parents = []) {
-        const url = await this.loadItem(item, parents)
+        // Callers read the source of a section they have just loaded (the
+        // renderer pairs `section.load()` with `section.loadContent()`), and
+        // there is no matching unload for this call, so reuse the reference
+        // they already hold rather than taking one that is never released.
+        const url = this.#cache.get(item?.href) ?? await this.loadItem(item, parents)
         if (url) return this.#cacheXHTMLContent.get(url)?.data
     }
     tryImageEntryItem(path) {
@@ -1038,6 +1135,24 @@ const getDisplayOptions = doc => {
     }
 }
 
+// Some EPUBs ship an OPF/NCX/nav doc that isn't well-formed XML: either named
+// HTML entities that XML doesn't predefine (`&nbsp;` …), or — worse — a bare
+// `&` that was never escaped (e.g. a hand-built manifest id like
+// `id="Search_&_Rescue"`). A strict XML parser rejects both, failing the whole
+// import. Map the known named entities to numeric refs, then escape any
+// remaining `&` that doesn't begin a valid character/entity reference so the
+// document parses instead.
+const xmlNamedEntities = {
+    nbsp: '&#160;', mdash: '&#8212;', ndash: '&#8211;',
+    ldquo: '&#8220;', rdquo: '&#8221;', lsquo: '&#8216;', rsquo: '&#8217;',
+    hellip: '&#8230;', copy: '&#169;', reg: '&#174;', trade: '&#8482;',
+    bull: '&#8226;', middot: '&#183;',
+}
+const sanitizeXMLEntities = str => str
+    .replace(/&([a-z]+);/gi, (match, entity) =>
+        xmlNamedEntities[entity.toLowerCase()] ?? match)
+    .replace(/&(?!#\d+;|#x[0-9a-f]+;|[a-z][a-z0-9]*;)/gi, '&amp;')
+
 export class EPUB {
     parser = new DOMParser()
     #loader
@@ -1052,31 +1167,10 @@ export class EPUB {
         this.getSize = getSize
         this.#encryption = new Encryption(deobfuscators(sha1))
     }
-    #sanitizeXMLEntities(str) {
-        // Common HTML entities that aren't valid in XML
-        const entityMap = {
-            'nbsp': '&#160;',
-            'mdash': '&#8212;',
-            'ndash': '&#8211;',
-            'ldquo': '&#8220;',
-            'rdquo': '&#8221;',
-            'lsquo': '&#8216;',
-            'rsquo': '&#8217;',
-            'hellip': '&#8230;',
-            'copy': '&#169;',
-            'reg': '&#174;',
-            'trade': '&#8482;',
-            'bull': '&#8226;',
-            'middot': '&#183;',
-        }
-        return str.replace(/&([a-z]+);/gi, (match, entity) => {
-            return entityMap[entity.toLowerCase()] || match
-        })
-    }
     async #loadXML(uri) {
         const str = await this.loadText(uri)
         if (!str) return null
-        const sanitized = this.#sanitizeXMLEntities(str)
+        const sanitized = sanitizeXMLEntities(str)
         const doc = this.parser.parseFromString(sanitized, MIME.XML)
         if (doc.querySelector('parsererror'))
             throw new Error(`XML parsing error: ${uri}
@@ -1184,7 +1278,16 @@ ${doc.querySelector('parsererror').innerText}`)
     }
     async loadDocument(item) {
         const str = await this.loadText(item.href)
-        return this.parser.parseFromString(str, item.mediaType)
+        const doc = this.parser.parseFromString(str, item.mediaType)
+        // Same fallback as the render path in `loadReplaced`: a file the
+        // manifest declares as XHTML but which isn't well-formed XML (an
+        // unclosed `<meta charset>` is the usual culprit) parses into a
+        // `parsererror` document whose `body` is null. Callers of
+        // `createDocument` walk that body, so retry as HTML instead.
+        if (item.mediaType === MIME.XHTML
+        && (doc.querySelector('parsererror') || !doc.documentElement?.namespaceURI))
+            return this.parser.parseFromString(str, MIME.HTML)
+        return doc
     }
     getMediaOverlay() {
         return new MediaOverlay(this, this.#loadXML.bind(this))
@@ -1212,9 +1315,17 @@ ${doc.querySelector('parsererror').innerText}`)
     }
     async getCover() {
         const cover = this.resources?.cover
-        return cover?.href
-            ? new Blob([await this.loadBlob(cover.href)], { type: cover.mediaType })
-            : null
+        if (cover?.href) return new Blob([await this.loadBlob(cover.href)],
+            { type: cover.mediaType })
+        // Fall back to a cover-named container entry. Some EPUBs ship the
+        // cover image without ever declaring it (no `cover-image` property,
+        // no `<meta name="cover">` target, no manifest item), which leaves
+        // every manifest-driven lookup above empty even though the image is
+        // sitting right there in the zip.
+        const href = findUndeclaredCover(this.entries.keys())
+        if (!href) return null
+        const blob = await this.loadBlob(href)
+        return blob ? new Blob([blob], { type: getImageMediaType(href) }) : null
     }
     async getCalibreBookmarks() {
         const txt = await this.loadText('META-INF/calibre_bookmarks.txt')
@@ -1227,4 +1338,25 @@ ${doc.querySelector('parsererror').innerText}`)
     destroy() {
         this.#loader?.destroy()
     }
+}
+
+// Standalone OPF metadata extractor.
+//
+// Exposed so callers that already have the OPF bytes in hand (e.g. a
+// platform-native pre-parser that read the zip on a faster runtime)
+// can derive `Book.metadata` without driving the full `EPUB.init()` —
+// which would force `@zip.js/zip.js` to scan the central directory
+// and inflate nav.xhtml/ncx the importer never reads. The output
+// shape is identical to what `EPUB.init()` would produce, so the
+// import-path BookDoc and the reader-path BookDoc remain byte-stable
+// across `Book.metadata.identifier`, title, contributors, refines
+// chains, ONIX5, and `belongs-to-collection`.
+//
+// Two entry points to fit different callers:
+//   - `getEpubMetadata(opfDoc)`        — already-parsed OPF Document
+//   - `parseEpubMetadataFromXML(xml)`  — raw OPF XML string
+export const getEpubMetadata = opf => getMetadata(opf)
+export const parseEpubMetadataFromXML = xml => {
+    const opf = new DOMParser().parseFromString(sanitizeXMLEntities(xml), 'application/xml')
+    return getMetadata(opf)
 }

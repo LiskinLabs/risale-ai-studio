@@ -6,6 +6,27 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsPath('pdf.worker.min.mjs')
 
 const fetchText = async url => await (await fetch(url)).text()
 
+// The OS accessibility "font size" setting scales every piece of WebView-rendered
+// text (including this transparent selection/highlight text layer) but leaves the
+// page's canvas bitmap untouched. Only the glyph *size* (a font-size) is scaled;
+// the text layer's positions are percentages of the `--total-scale-factor`-sized
+// container and are not. Left uncorrected the glyphs render `fontScale`x larger
+// than the ones baked into the canvas, so selection and highlight rectangles
+// overshoot the text into the blank margins and sit too low (readest #4480).
+// Measure the scale here so render() can divide it back out of the glyph-size
+// lever only. offsetHeight of a 100px/line-height-1 box reflects the OS font
+// scaling but not devicePixelRatio or CSS transforms, so it isolates it.
+const getFontScale = doc => {
+    const probe = doc.createElement('div')
+    probe.style.cssText = 'position:absolute;left:-9999px;top:0;visibility:hidden;'
+        + 'font-size:100px;line-height:1;text-size-adjust:none;-webkit-text-size-adjust:none'
+    probe.textContent = 'x'
+    doc.body.append(probe)
+    const fontScale = probe.offsetHeight / 100
+    probe.remove()
+    return fontScale > 0 ? fontScale : 1
+}
+
 let textLayerBuilderCSS = null
 let annotationLayerBuilderCSS = null
 
@@ -130,6 +151,45 @@ const setupPanningEvents = (doc) => {
     container.style.cursor = 'grab'
 }
 
+// iOS kills the WKWebView content process when it exceeds a per-process memory
+// high-water limit (~2 GB). A device crash log for readest #5118 shows the
+// foreground WebContent process reaching 2.1 GB while paging a PDF, right before
+// the reader "closed". Both a page's canvas bitmap and its WebKit backing layer
+// are allocated at the render scale, so their memory grows with the SQUARE of the
+// device pixel ratio. Phones report dpr 3, which is the tipping factor.
+// Rendering at 2x instead of 3x is still retina-sharp but uses ~2.25x less memory
+// per page (the crisp, selectable text layer is a separate DOM layer, unaffected).
+const MAX_RENDER_DPR = 2
+// Hard ceiling on a single page's bitmap area (~3.1 Mpx ≈ 12.6 MB) so a large
+// tablet page can't blow the budget even after the dpr clamp.
+const MAX_CANVAS_PIXELS = 2048 * 1536
+
+// Only mobile WebViews get that budget. Desktop browsers have no per-process
+// memory ceiling, and a page fitted to a desktop window is several times the
+// budget on its own, so clamping there bought nothing and cost sharpness: the
+// raster ended up coarser than the screen, the browser upscaled it into the CSS
+// box, and PDF text looked blurry (readest #5251). iPadOS reports a desktop
+// ("Macintosh") user agent, so touch points are what give a tablet away.
+const isMobileWebView = () => {
+    const ua = navigator.userAgent
+    return /Android|iPhone|iPad|iPod/i.test(ua)
+        || (/Macintosh/i.test(ua) && navigator.maxTouchPoints > 1)
+}
+
+// The device pixel ratio to rasterise this page at: the real dpr on desktop, or
+// on mobile the dpr clamped by both MAX_RENDER_DPR and the per-canvas pixel
+// budget. Never below 1 (CSS resolution).
+const getRenderDpr = (page, zoom) => {
+    let dpr = devicePixelRatio || 1
+    if (isMobileWebView()) {
+        dpr = Math.min(dpr, MAX_RENDER_DPR)
+        const { width, height } = page.getViewport({ scale: zoom || 1 })
+        const area = width * height * dpr * dpr
+        if (area > MAX_CANVAS_PIXELS) dpr *= Math.sqrt(MAX_CANVAS_PIXELS / area)
+    }
+    return Math.max(1, dpr)
+}
+
 const render = async (page, doc, zoom, pageColors) => {
     if (!doc) return
 
@@ -144,22 +204,40 @@ const render = async (page, doc, zoom, pageColors) => {
         activeRenderTasks.delete(doc)
     }
 
-    const scale = zoom * devicePixelRatio
-    doc.documentElement.style.transform = `scale(${1 / devicePixelRatio})`
-    doc.documentElement.style.transformOrigin = 'top left'
-    doc.documentElement.style.setProperty('--total-scale-factor', scale)
+    // Rasterise the page bitmap over-sampled (clamped for the iOS content-process
+    // memory budget, see getRenderDpr / readest #5118) but lay the whole DOM out
+    // at the true display size. The <canvas> element natively downscales its
+    // bitmap to its CSS box, so the raster stays crisp WITHOUT scaling the
+    // document. Scaling the document with `transform` promotes the whole page to
+    // one over-sized GPU IOSurface that OOM-kills the iOS WebContent process on
+    // zoom; scaling it with `zoom` throws off getBoundingClientRect, misplacing
+    // text selection and the annotation toolbar. Neither is used: the text and
+    // annotation layers live in real display coordinates.
+    const renderDpr = getRenderDpr(page, zoom)
+    const renderScale = zoom * renderDpr
+    doc.documentElement.style.setProperty('--total-scale-factor', zoom)
     doc.documentElement.style.setProperty('--user-unit', '1')
     doc.documentElement.style.setProperty('--scale-round-x', '1px')
     doc.documentElement.style.setProperty('--scale-round-y', '1px')
-    const viewport = page.getViewport({ scale })
+    // The bitmap viewport is over-sampled; the display viewport drives the CSS
+    // box, the text layer and the annotation layer (all in display coordinates).
+    const renderViewport = page.getViewport({ scale: renderScale })
+    const displayViewport = page.getViewport({ scale: zoom })
 
     // the canvas must be in the `PDFDocument`'s `ownerDocument`
     // (`globalThis.document` by default); that's where the fonts are loaded
     const canvas = document.createElement('canvas')
-    canvas.height = viewport.height
-    canvas.width = viewport.width
+    canvas.height = renderViewport.height
+    canvas.width = renderViewport.width
+    // The CSS box is the un-truncated display size, so the (integer-truncated)
+    // over-sampled bitmap is scaled by the browser to fill the page box exactly.
+    // Pinning the box to the display viewport (rather than letting the truncated
+    // bitmap drive layout) also keeps the left page flush to the spine of a
+    // two-page spread instead of exposing a one-pixel white seam (#4587).
+    canvas.style.width = `${displayViewport.width}px`
+    canvas.style.height = `${displayViewport.height}px`
     const canvasContext = canvas.getContext('2d')
-    const renderTask = page.render({ canvasContext, viewport, pageColors })
+    const renderTask = page.render({ canvasContext, viewport: renderViewport, pageColors })
     activeRenderTasks.set(doc, renderTask)
 
     try {
@@ -202,12 +280,20 @@ const render = async (page, doc, zoom, pageColors) => {
     container.replaceChildren()
     const textLayer = new pdfjsLib.TextLayer({
         textContentSource: await page.streamTextContent(),
-        container, viewport,
+        container, viewport: displayViewport,
     })
     await textLayer.render()
 
     // Bail out if superseded after async text layer render
     if (renderGenerations.get(doc) !== generation) return
+
+    // Counteract the OS font-size accessibility scaling on the text layer's glyph
+    // size only (see getFontScale). `--text-scale-factor` feeds `font-size` and
+    // nothing else, so dividing it leaves positions (which scale with
+    // `--total-scale-factor`) aligned with the canvas at any font-size setting.
+    const fontScale = getFontScale(doc)
+    if (fontScale !== 1) container.style.setProperty('--text-scale-factor',
+        `calc(var(--total-scale-factor) * var(--min-font-size) / ${fontScale})`)
 
     // hide "offscreen" canvases appended to document when rendering text layer
     // https://github.com/mozilla/pdf.js/blob/642b9a5ae67ef642b9a8808fd9efd447e8c350e2/web/pdf_viewer.css#L51-L58
@@ -236,9 +322,13 @@ const render = async (page, doc, zoom, pageColors) => {
     const linkService = {
         goToDestination: () => {},
         getDestinationHash: dest => JSON.stringify(dest),
+        // pdf.js AnnotationLayer calls getAnchorUrl for named-action / GoTo link
+        // annotations; without it the render rejects with "getAnchorUrl is not a
+        // function" (READEST-2M). Match pdf.js SimpleLinkService, which returns ''.
+        getAnchorUrl: () => '',
         addLinkAttributes: (link, url) => link.href = url,
     }
-    await new pdfjsLib.AnnotationLayer({ page, viewport, div, linkService }).render({
+    await new pdfjsLib.AnnotationLayer({ page, viewport: displayViewport, div, linkService }).render({
         annotations: await page.getAnnotations(),
     })
 }
@@ -314,7 +404,12 @@ const makeTOCItem = async (item, pdf) => {
     }
 }
 
-const MAX_CACHED_PAGES = 8
+// Cache of decoded pdf.js page objects and their rendered HTML blobs. These are
+// cheap (page metadata + a small blob URL, not the large canvas bitmap, which
+// lives in the visible iframe) so this can comfortably exceed the live-canvas
+// cap in fixed-layout's scroll mode, sparing a re-parse when the reader scrolls
+// back over a recently seen page.
+const MAX_CACHED_PAGES = 16
 
 const CALIBRE_NS = 'http://calibre-ebook.com/xmp-namespace'
 const CALIBRE_SI_NS = 'http://calibre-ebook.com/xmp-namespace-series-index'
@@ -345,20 +440,42 @@ const parseCalibreSeriesFromXMP = raw => {
     return position ? { name, position } : { name }
 }
 
+// Maximum number of range reads to keep in flight at once. While parsing a
+// large PDF's cross-reference and object streams, pdf.js can request hundreds
+// of byte ranges in a single burst. A real HTTP transport is implicitly
+// throttled by the browser's per-host connection limit (~6); the custom file
+// schemes readest serves these reads through (Android's `rangefile` /
+// `shouldInterceptRequest`, iOS' native file bridge) have no such limit, so
+// firing every request at once floods the native handler and exhausts the
+// WebView's heap, crashing on 50 MB+ PDFs (readest #3470). Throttle here.
+const MAX_CONCURRENT_RANGES = 6
+
 export const makePDF = async file => {
     const transport = new pdfjsLib.PDFDataRangeTransport(file.size, [])
-    transport.requestDataRange = (begin, end) => {
-        file.slice(begin, end).arrayBuffer().then(chunk => {
-            transport.onDataRange(begin, chunk)
-        })
+    // Bound the concurrent range reads instead of dispatching them all at once.
+    let active = 0
+    const queue = []
+    const pump = () => {
+        while (active < MAX_CONCURRENT_RANGES && queue.length) {
+            const [begin, end] = queue.shift()
+            active++
+            file.slice(begin, end).arrayBuffer()
+                .then(chunk => transport.onDataRange(begin, chunk))
+                .finally(() => { active--; pump() })
+        }
     }
-    const pdf = await pdfjsLib.getDocument({
+    transport.requestDataRange = (begin, end) => {
+        queue.push([begin, end])
+        pump()
+    }
+    const loadingTask = pdfjsLib.getDocument({
         range: transport,
         wasmUrl: pdfjsPath(''),
         cMapUrl: pdfjsPath('cmaps/'),
         standardFontDataUrl: pdfjsPath('standard_fonts/'),
         isEvalSupported: false,
-    }).promise
+    })
+    const pdf = await loadingTask.promise
 
     // Get viewport dimensions from first page for fixed-layout rendering
     const firstPage = await pdf.getPage(1)
@@ -386,8 +503,27 @@ export const makePDF = async file => {
     const calibreSeries = parseCalibreSeriesFromXMP(metadata?.getRaw?.())
     if (calibreSeries) book.metadata.belongsTo = { series: calibreSeries }
 
+    // PDFs bound right-to-left (Japanese photo books, manga) declare it in the
+    // catalog's ViewerPreferences; surface it as book.dir so the fixed-layout
+    // renderer pairs and orders two-page spreads right-to-left.
+    const viewerPreferences = await pdf.getViewerPreferences().catch(() => null)
+    const direction = viewerPreferences?.get?.('Direction')
+        ?? viewerPreferences?.Direction
+    if (direction === 'R2L') book.dir = 'rtl'
+
     const outline = await pdf.getOutline()
     book.toc = outline ? await Promise.all(outline.map(item => makeTOCItem(item, pdf))) : null
+
+    // Page labels (PDF 32000-1 §12.4.2) are the numbers printed on the pages
+    // -- roman-numeral front matter, a body that restarts at 1 -- and are what
+    // the book's own TOC means by "page 139", as opposed to the physical index
+    // into the file. Expose them as the page list so they reach readers through
+    // the same `pageItem` channel as an EPUB page-list nav. Like PDF.js, ignore
+    // labels that merely restate the physical page numbers or are all empty.
+    const labels = await pdf.getPageLabels().catch(() => null)
+    book.pageList = labels?.some((label, i) => label && label !== String(i + 1))
+        ? labels.map((label, i) => ({ label, href: JSON.stringify(i), index: i }))
+        : null
 
     const cache = new Map()
     const pageCache = new Map()
@@ -475,8 +611,11 @@ export const makePDF = async file => {
         size: 1000,
     }))
     book.isExternal = uri => /^\w+:/i.test(uri)
+    // TOC hrefs are JSON-encoded destinations (named or explicit); page-list
+    // hrefs are JSON-encoded page indices.
     book.resolveHref = async href => {
         const parsed = JSON.parse(href)
+        if (typeof parsed === 'number') return { index: parsed }
         const dest = typeof parsed === 'string'
             ? await pdf.getDestination(parsed) : parsed
         const index = await pdf.getPageIndex(dest[0])
@@ -485,6 +624,7 @@ export const makePDF = async file => {
     book.splitTOCHref = async href => {
         if (!href) return [null, null]
         const parsed = JSON.parse(href)
+        if (typeof parsed === 'number') return [parsed, null]
         const dest = typeof parsed === 'string'
             ? await pdf.getDestination(parsed) : parsed
         try {
@@ -507,7 +647,7 @@ export const makePDF = async file => {
             page?.cleanup()
         }
         pageCache.clear()
-        pdf.destroy()
+        loadingTask.destroy()
     }
     return book
 }

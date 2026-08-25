@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { NextRequest } from 'next/server';
-import { middleware } from '@/middleware';
+import { middleware } from '@/proxy';
 
 const coep = (path: string) =>
   middleware(new NextRequest(`http://localhost:3000${path}`)).headers.get(

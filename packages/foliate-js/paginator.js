@@ -1,5 +1,29 @@
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms))
 
+// WebKit before Safari 17 (iOS <= 16) resolves the `document.fonts.ready`
+// promise synchronously while purging still-loading `@font-face`s during a
+// style resolver rebuild (CSSFontFaceSet::purge). Script execution is
+// disallowed in the middle of style resolution, so the resolution trips a
+// release assert and kills the WebContent process (DeferredPromise::callFunction
+// under CSSFontSelector::buildStarted in the .ips crash log).
+// The deferring guard only landed in WebKit 616 (Safari/iOS 17), the same
+// release that shipped URL.canParse. The JS promise is created lazily on
+// first access of `.ready`, so on affected engines never touch it and poll
+// `fonts.status` instead.
+export const fontsReady = doc => {
+    const fonts = doc?.fonts
+    const win = doc?.defaultView
+    if (!fonts || !win) return Promise.resolve()
+    const buggyWebKit = win.navigator?.userAgent?.includes('AppleWebKit/605')
+        && typeof win.URL?.canParse !== 'function'
+    if (!buggyWebKit) return fonts.ready
+    return new Promise(resolve => {
+        const poll = () => fonts.status === 'loaded'
+            ? resolve() : win.setTimeout(poll, 100)
+        poll()
+    })
+}
+
 const debounce = (f, wait, immediate) => {
     let timeout
     return (...args) => {
@@ -13,6 +37,11 @@ const debounce = (f, wait, immediate) => {
         if (callNow) f(...args)
     }
 }
+
+// How long a continuous run of scrolled-mode scroll events may last before a
+// relocate is forced mid-scroll, so reading progress keeps updating while the
+// scrolling never pauses (readest#5635).
+const SCROLL_RELOCATE_MAX_WAIT = 1000
 
 // Transforms ALL children of the container so multi-view layouts
 // animate as a unified whole. Extra elements (e.g. background) are
@@ -63,6 +92,24 @@ const cssAnimateScroll = (element, scrollProp, startValue, endValue, duration, e
 
         // Apply final scroll position
         element[scrollProp] = endValue
+        // Translating the children shrank the container's scrollable overflow
+        // by the animated distance, and WebKit (iOS 18) still reports that
+        // shrunken extent when the transforms are cleared in this same task —
+        // so the assignment above is clamped. Mid-book the clamp lands far
+        // beyond the target and is invisible; on the last page of the book,
+        // where the target *is* the maximum scroll offset, it lands a full page
+        // short and the page visibly snaps back (readest#5663).
+        if (Math.abs(element[scrollProp] - endValue) > 0.5) {
+            // Forcing a layout here is not enough — the extent it reports is
+            // restored, but the scroll clamp still uses the stale one for the
+            // rest of the task. The next frame is past the compositor's
+            // animation teardown, so re-apply there.
+            requestAnimationFrame(() => {
+                element[scrollProp] = endValue
+                resolve()
+            })
+            return
+        }
         resolve()
     }
 
@@ -79,6 +126,242 @@ const cssAnimateScroll = (element, scrollProp, startValue, endValue, duration, e
     // Fallback timeout in case transitionend doesn't fire
     setTimeout(cleanup, duration + 50)
 })
+
+// Two-phase page-turn slide for vertical (vertical-rl/lr) paginated books.
+// Their pages read horizontally but CSS fragmentation stacks them along the
+// vertical scroll axis, so the outgoing and incoming page can never be on
+// screen side by side (readest#624). Instead the outgoing page exits
+// horizontally along the page progression, the scroll offset jumps while the
+// viewport shows only the page background, and the incoming page follows in
+// from the opposite edge. `startX` continues from a finger drag already in
+// progress; `isStale` lets a newer turn supersede this one: when it reports
+// true, this animation stops touching the DOM.
+const slideTurnAnimation = (element, scrollProp, endValue, exitSign, width, duration, isStale, onSwap, startX = 0) => new Promise(resolve => {
+    const children = [...element.children]
+    if (document.hidden || !children.length) {
+        element[scrollProp] = endValue
+        return resolve()
+    }
+    const half = duration / 2
+    const exitTarget = exitSign * width
+    // Scale the exit by the distance the drag already covered so a released
+    // drag continues at the same pace instead of restarting from rest.
+    const exitDuration = Math.max(16, half * Math.min(1, Math.abs(exitTarget - startX) / width))
+    const setAll = (transition, transform) => {
+        for (const el of children) {
+            el.style.transition = transition
+            el.style.transform = transform
+        }
+    }
+    for (const el of children) el.style.willChange = 'transform'
+    // Phase 1: the outgoing page accelerates off-screen.
+    setAll('none', `translateX(${startX}px)`)
+    element.getBoundingClientRect()
+    setAll(`transform ${exitDuration}ms cubic-bezier(0.55, 0, 1, 0.45)`, `translateX(${exitTarget}px)`)
+    setTimeout(() => {
+        if (isStale()) return resolve()
+        // Midpoint: swap pages while everything is off-screen.
+        element[scrollProp] = endValue
+        onSwap?.()
+        setAll('none', `translateX(${-exitSign * width}px)`)
+        element.getBoundingClientRect()
+        // Phase 2: the incoming page decelerates into place.
+        setAll(`transform ${half}ms cubic-bezier(0, 0.55, 0.45, 1)`, 'translateX(0px)')
+        setTimeout(() => {
+            if (isStale()) return resolve()
+            for (const el of children) {
+                el.style.willChange = ''
+                el.style.transition = ''
+                el.style.transform = ''
+            }
+            resolve()
+        }, half + 20)
+    }, exitDuration + 10)
+})
+
+// Layered page-turn styles (readest#555). The `slide` and `curl` turn styles
+// need the outgoing and incoming page on screen at once as separate layers,
+// which the rigid column strip inside one iframe cannot provide. The View
+// Transitions API can: the browser rasterizes the outgoing page (overlays and
+// annotations included) as a snapshot that animates over the live, stationary
+// incoming page — an Apple Books style slide or curl. The choreography lives
+// in a document-level stylesheet because the ::view-transition pseudo tree
+// attaches to the document root, not to the paginator's shadow root.
+const VIEW_TRANSITION_CLASSES = [
+    'foliate-vt', 'foliate-vt-slide', 'foliate-vt-curl',
+    'foliate-vt-scrub',
+    'foliate-vt-forward', 'foliate-vt-backward',
+    'foliate-vt-left', 'foliate-vt-right',
+    'foliate-vt-eat-left', 'foliate-vt-eat-right',
+]
+
+const RELEASE_VELOCITY_WINDOW_MS = 90
+const RELEASE_PAUSE_THRESHOLD_MS = 80
+const SLIDE_RELEASE_PROJECTION_MS = 240
+const LAYERED_EDGE_REGION = 0.18
+const LAYERED_EARLY_CLAIM_PX = 6
+const LAYERED_EARLY_SAMPLE_INTERVAL_MS = 80
+const LAYERED_VERTICAL_REJECT_PX = 8
+const LAYERED_FALLBACK_CLAIM_PX = 24
+const LAYERED_FALLBACK_DOMINANCE = 1.5
+
+const updateReleaseSample = (state, distance, time) => {
+    const previous = state.releaseSamples.at(-1)
+    if (!previous || distance !== previous.distance) state.lastMovementTime = time
+    if (previous?.time === time) previous.distance = distance
+    else state.releaseSamples.push({ distance, time })
+
+    const cutoff = time - RELEASE_VELOCITY_WINDOW_MS
+    while (state.releaseSamples.length > 2
+        && state.releaseSamples[1].time < cutoff) state.releaseSamples.shift()
+}
+
+const getReleaseVelocity = state => {
+    const latest = state.releaseSamples.at(-1)
+    if (!latest || latest.time - state.lastMovementTime > RELEASE_PAUSE_THRESHOLD_MS) return 0
+
+    const cutoff = latest.time - RELEASE_VELOCITY_WINDOW_MS
+    const before = state.releaseSamples[0]
+    const after = state.releaseSamples.find(sample => sample.time >= cutoff)
+    if (!before || !after) return 0
+
+    const startTime = Math.max(cutoff, before.time)
+    if (latest.time <= startTime) return 0
+    const interval = after.time - before.time
+    const startDistance = interval > 0 && startTime > before.time
+        ? before.distance
+            + (after.distance - before.distance) * (startTime - before.time) / interval
+        : after.distance
+    return (latest.distance - startDistance) / (latest.time - startTime)
+}
+
+// Release speed controls the remaining settle rate for both layered styles.
+// Slide can carry more momentum than the heavier curl.
+const LAYERED_SETTLE_CONFIG = {
+    slide: { minSpeed: 0.2, maxSpeed: 1, maxRate: 2 },
+    curl: { minSpeed: 0.3, maxSpeed: 1.5, maxRate: 1.5 },
+}
+
+const layeredSettlePlaybackRate = (style, speed) => {
+    const config = LAYERED_SETTLE_CONFIG[style]
+    if (!config || !(speed > config.minSpeed)) return 1
+    const { minSpeed, maxSpeed, maxRate } = config
+    const amount = Math.min(1, (speed - minSpeed) / (maxSpeed - minSpeed))
+    return 1 + amount * (maxRate - 1)
+}
+
+const updatePlaybackRate = (animation, rate) => {
+    if (rate === 1) return
+    try {
+        animation.updatePlaybackRate(rate)
+        return
+    } catch { /* unsupported for this UA animation */ }
+    try { animation.playbackRate = rate } catch { /* unsupported */ }
+}
+
+const injectViewTransitionStyles = () => {
+    const id = 'foliate-view-transition-styles'
+    if (document.getElementById(id)) return
+    const style = document.createElement('style')
+    style.id = id
+    style.textContent = `
+    .foliate-vt::view-transition {
+        pointer-events: none;
+    }
+    /* Only the page turn animates; keep the root snapshot inert. */
+    .foliate-vt::view-transition-old(root),
+    .foliate-vt::view-transition-new(root) {
+        animation: none;
+    }
+    /* The turn layers must OCCLUDE, not blend: the UA pairs old/new with
+       mix-blend-mode: plus-lighter for its default cross-fade, which turns
+       the still page ghostly under a moving page. Also back both layers
+       with the page colour, since snapshots of textured themes or books
+       without a background are transparent. */
+    .foliate-vt::view-transition-old(foliate-turn),
+    .foliate-vt::view-transition-new(foliate-turn) {
+        animation: none;
+        background: var(--foliate-vt-bg, Canvas);
+        mix-blend-mode: normal;
+    }
+    /* Slide: the moving page travels over the still page with a soft edge
+       shadow, like the Apple Books slide. Forward moves the outgoing
+       snapshot out on top; backward brings the incoming snapshot in on
+       top of the still outgoing page. */
+    .foliate-vt-slide.foliate-vt-forward::view-transition-old(foliate-turn) {
+        z-index: 1;
+        animation: foliate-turn-slide-out-left 300ms cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
+        box-shadow: 0 0 24px rgba(0, 0, 0, 0.35);
+    }
+    .foliate-vt-slide.foliate-vt-forward.foliate-vt-right::view-transition-old(foliate-turn) {
+        animation-name: foliate-turn-slide-out-right;
+    }
+    .foliate-vt-slide.foliate-vt-backward::view-transition-new(foliate-turn) {
+        animation: foliate-turn-slide-in-left 300ms cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
+        box-shadow: 0 0 24px rgba(0, 0, 0, 0.35);
+    }
+    .foliate-vt-slide.foliate-vt-backward.foliate-vt-right::view-transition-new(foliate-turn) {
+        animation-name: foliate-turn-slide-in-right;
+    }
+    /* Finger-tracked turns map distance directly to animation time. Declare
+       linear timing at the CSS source because some Android WebViews expose
+       UA pseudo animations but reject KeyframeEffect.updateTiming(). */
+    .foliate-vt-scrub::view-transition-old(foliate-turn),
+    .foliate-vt-scrub::view-transition-new(foliate-turn) {
+        animation-timing-function: linear !important;
+    }
+    @keyframes foliate-turn-slide-out-left { to { transform: translateX(-100%); } }
+    @keyframes foliate-turn-slide-out-right { to { transform: translateX(100%); } }
+    @keyframes foliate-turn-slide-in-left { from { transform: translateX(-100%); } }
+    @keyframes foliate-turn-slide-in-right { from { transform: translateX(100%); } }
+    /* Curl: a fold line travels across the page, peeling it off the still
+       page underneath like the Apple Books / Kindle curl. The fold is an
+       oversized gradient mask slid across the OLD snapshot (mask-position is
+       animatable; gradients themselves are not), so the page dissolves over
+       a soft band at the traveling edge — the lifted-page falloff. Chrome
+       paints masks on the static old snapshot but not on the live new layer,
+       so backward turns also choreograph the old page: it recedes from the
+       spine side, which reads the same as the incoming page unfolding.
+       Filters and shadows are applied before masking and would be cut off
+       with the page, hence the soft edge. A flat snapshot cannot mesh-bend
+       like a native curl; this is the closest two-layer approximation. */
+    /* The curl consumes the old page along a CURVED fold: a transparent
+       disc grows out of the page's outer-bottom corner (the corner a reader
+       lifts), so the fold edge is an arc sweeping across the page toward
+       the spine — the bent-page line of a corner curl. Backward turns grow
+       the arc from the spine-side corner instead, receding the old page so
+       the previous page appears to unfold (eat side precomputed on the
+       root). The fold edge is an animated gradient STOP (registered custom
+       property) re-rasterized each frame against the element box:
+       mask-position/mask-size animations paint unreliably on
+       view-transition pseudos. The 6% band is the lifted-page falloff. */
+    @property --foliate-fold {
+        syntax: '<percentage>';
+        inherits: false;
+        initial-value: 0%;
+    }
+    .foliate-vt-curl.foliate-vt-eat-right::view-transition-old(foliate-turn) {
+        z-index: 1;
+        -webkit-mask-image: radial-gradient(circle at 108% 108%, transparent calc(var(--foliate-fold) - 6%), black var(--foliate-fold));
+        mask-image: radial-gradient(circle at 108% 108%, transparent calc(var(--foliate-fold) - 6%), black var(--foliate-fold));
+        animation: foliate-turn-curl-fold 450ms cubic-bezier(0.3, 0.1, 0.4, 1) both;
+    }
+    .foliate-vt-curl.foliate-vt-eat-left::view-transition-old(foliate-turn) {
+        z-index: 1;
+        -webkit-mask-image: radial-gradient(circle at -8% 108%, transparent calc(var(--foliate-fold) - 6%), black var(--foliate-fold));
+        mask-image: radial-gradient(circle at -8% 108%, transparent calc(var(--foliate-fold) - 6%), black var(--foliate-fold));
+        animation: foliate-turn-curl-fold 450ms cubic-bezier(0.3, 0.1, 0.4, 1) both;
+    }
+    .foliate-vt-curl::view-transition-new(foliate-turn) {
+        animation: none;
+    }
+    @keyframes foliate-turn-curl-fold {
+        from { --foliate-fold: 0%; }
+        to { --foliate-fold: 118%; }
+    }
+    `
+    document.head.append(style)
+}
 
 const lerp = (min, max, x) => x * (max - min) + min
 const easeOutQuad = x => 1 - (1 - x) * (1 - x)
@@ -276,6 +559,11 @@ export const isViewVisibleInContainer = (viewRect, containerRect) =>
 
 export const getDirection = doc => {
     const { defaultView } = doc
+    // A view's iframe document can be blank/detached while a section loads or
+    // the view is torn down, leaving body null; getComputedStyle(null) then
+    // throws "parameter 1 is not of type 'Element'" (READEST-2X). Fall back to
+    // horizontal-ltr until real content is present.
+    if (!defaultView || !doc.body) return { vertical: false, rtl: false }
     let { writingMode, direction } = defaultView.getComputedStyle(doc.body)
     // Some EPUBs set writing-mode on the first child of body instead of body itself
     if (!writingMode || writingMode === 'horizontal-tb') {
@@ -290,13 +578,20 @@ export const getDirection = doc => {
     }
     const vertical = writingMode === 'vertical-rl'
         || writingMode === 'vertical-lr'
-    const rtl = doc.body.dir === 'rtl'
+    // `vertical-rl` (Japanese/Chinese vertical) advances columns right-to-left
+    // even though its computed `direction` stays `ltr`, so the writing mode
+    // itself marks it RTL and page turns follow the horizontal-rtl convention
+    // (readest#624). Mirrors getDirection in the app's libs/document.ts.
+    const rtl = writingMode === 'vertical-rl'
+        || doc.body.dir === 'rtl'
         || direction === 'rtl'
         || doc.documentElement.dir === 'rtl'
     return { vertical, rtl }
 }
 
 const getBackground = doc => {
+    // Same blank/detached-document guard as getDirection (READEST-2X).
+    if (!doc.defaultView || !doc.body) return ''
     const bodyStyle = doc.defaultView.getComputedStyle(doc.body)
     return bodyStyle.backgroundColor === 'rgba(0, 0, 0, 0)'
         && bodyStyle.backgroundImage === 'none'
@@ -347,8 +642,15 @@ export const computeBackgroundSegments = (views, scrollPos, bgSize, inset, conta
 // and the resolved colour otherwise. Shared by scrolled-mode view elements and
 // paginated-mode segments so both modes treat textures identically (readest#4399).
 export const textureAwareBackground = (resolved, hasTexture) => {
-    const isTransparent = !resolved
-        || /^\s*(transparent|rgba\(0,\s*0,\s*0,\s*0\))/.test(resolved)
+    // A page that paints an image (e.g. a cover set via body `background-image`)
+    // is NOT transparent — it should occlude the texture, not be dropped. The
+    // computed `background` shorthand always serializes the transparent
+    // background-*color* first (`rgba(0, 0, 0, 0) url(...) ...`), so the
+    // colour-prefix check below would otherwise misclassify a cover as
+    // transparent and hide it behind the texture (verified on Android WebView).
+    const hasImage = /\burl\(/i.test(resolved ?? '')
+    const isTransparent = !hasImage && (!resolved
+        || /^\s*(transparent|rgba\(0,\s*0,\s*0,\s*0\))/.test(resolved))
     return hasTexture && isTransparent ? '' : resolved
 }
 
@@ -361,11 +663,15 @@ const makeMarginals = (length, part) => Array.from({ length }, () => {
 })
 
 const setStyles = (el, styles) => {
+    // el is doc.documentElement, which is null while a view's document is blank
+    // or detached mid-render/teardown (READEST-1H). Nothing to style then.
+    if (!el) return
     const { style } = el
     for (const [k, v] of Object.entries(styles)) style.setProperty(k, v)
 }
 
 const setStylesImportant = (el, styles) => {
+    if (!el) return
     const { style } = el
     for (const [k, v] of Object.entries(styles)) style.setProperty(k, v, 'important')
 }
@@ -425,6 +731,7 @@ class View {
         return new Promise(resolve => {
             this.#iframe.addEventListener('load', async () => {
                 const doc = this.document
+                if (!doc?.documentElement || !doc.body) return resolve()
                 afterLoad?.(doc)
 
                 this.#iframe.setAttribute('aria-label', doc.title)
@@ -494,7 +801,7 @@ class View {
                 // the resize observer above doesn't work in Firefox
                 // (see https://bugzilla.mozilla.org/show_bug.cgi?id=1832939)
                 // until the bug is fixed we can at least account for font load
-                this.fontReady = doc.fonts.ready.then(() => this.expand())
+                this.fontReady = fontsReady(doc).then(() => this.expand())
 
                 resolve()
             }, { once: true })
@@ -603,7 +910,34 @@ class View {
             'position': 'static',
         })
         this.setImageSize(availableWidth, availableHeight)
+        this.#demoteUnfragmentableBoxes(availableHeight)
         this.expand()
+    }
+    // Atomic inline-level boxes (inline-block / inline-flex / inline-grid /
+    // inline-table) cannot be fragmented across columns. When an EPUB declares
+    // such a display on a tall block container, the box overflows the page and
+    // every column past the first is clipped, so whole sections silently vanish
+    // (e.g. a chapter that jumps straight to its references). Detect the
+    // vertical overflow this causes in paginated mode and demote the offending
+    // boxes to their fragmentable block-level equivalents so the content
+    // paginates normally. The querySelectorAll scan only runs when the document
+    // actually overflows its column, which is the (rare) bug case.
+    #demoteUnfragmentableBoxes(availableHeight) {
+        const doc = this.document
+        const root = doc?.documentElement
+        if (!root || root.scrollHeight <= root.clientHeight + 1) return
+        const view = doc.defaultView
+        const fragmentable = {
+            'inline-block': 'block',
+            'inline-flex': 'flex',
+            'inline-grid': 'grid',
+            'inline-table': 'table',
+        }
+        for (const el of doc.body.querySelectorAll('*')) {
+            const replacement = fragmentable[view.getComputedStyle(el).display]
+            if (replacement && el.getBoundingClientRect().height > availableHeight)
+                setStylesImportant(el, { display: replacement })
+        }
     }
     setImageSize(availableWidth, availableHeight) {
         const { width, height, marginTop, marginRight, marginBottom, marginLeft } = this.#layout
@@ -651,6 +985,10 @@ class View {
                     width: '100%',
                     height: '100%',
                     margin: '0',
+                    // fit the whole page while keeping the aspect ratio
+                    // ('contain' set for all images above); black bars fill
+                    // the leftover space like Duokan's native full-page render
+                    'background-color': '#000',
                 })
                 let ancestor = el.parentElement
                 while (ancestor && ancestor !== doc.body) {
@@ -659,11 +997,13 @@ class View {
                         height: '100%',
                         margin: '0',
                         padding: '0',
+                        // a positioned wrapper (e.g. from duokan-bleed handling)
+                        // would become the containing block for the pinned image,
+                        // whose height:100% then resolves against the wrapper's
+                        // zero height and the cover vanishes (#5263)
+                        position: 'static',
                     })
                     ancestor = ancestor.parentElement
-                }
-                if (el.localName === 'svg') {
-                    el.setAttribute('preserveAspectRatio', 'xMidYMid meet')
                 }
             } else if (pageFullscreen) {
                 // Scrolled mode for a fullscreen-cover doc: undo any absolute
@@ -673,12 +1013,12 @@ class View {
                 // the stale position:absolute/height:100% and the cover stays
                 // collapsed.
                 doc.documentElement.style.removeProperty('position')
-                for (const prop of ['position', 'inset', 'width', 'height', 'margin']) {
+                for (const prop of ['position', 'inset', 'width', 'height', 'margin', 'background-color']) {
                     el.style.removeProperty(prop)
                 }
                 let ancestor = el.parentElement
                 while (ancestor && ancestor !== doc.body) {
-                    for (const prop of ['width', 'height', 'margin', 'padding']) {
+                    for (const prop of ['width', 'height', 'margin', 'padding', 'position']) {
                         ancestor.style.removeProperty(prop)
                     }
                     ancestor = ancestor.parentElement
@@ -958,7 +1298,28 @@ export class Paginator extends HTMLElement {
     #touchScrolled
     #lastVisibleRange
     #scrollLocked = false
+    #subpixelOffset = 0
     #isAnimating = false
+    // Generation counter for slideTurnAnimation: a newer vertical page turn
+    // bumps it so an in-flight two-phase slide stops touching the DOM.
+    #slideTurnId = 0
+    // Horizontal drag offset (px) applied to the views while a finger tracks
+    // a page turn on a vertical book; consumed as the slide's start position
+    // when the turn commits, or settled back to 0 when it doesn't.
+    #dragTranslateX = 0
+    // Active finger-tracked layered turn (readest#555): a paused view
+    // transition whose animations are scrubbed by the drag.
+    #vtDrag = null
+    // A released layered turn still owns the global View Transition until its
+    // commit/cancel cleanup and terminal lifecycle event complete.
+    #vtFinishing = null
+    #vtProgrammatic = null
+    #vtNamedHost = null
+    // Snapshot of the invariant inputs #replaceBackground needs (theme/texture
+    // style, background+container geometry, per-view size+colour). Set once when
+    // a scroll animation starts so the per-frame repaint reuses it instead of
+    // forcing a fresh style+layout read every frame; null when not animating.
+    #bgAnimContext = null
     #filling = false // true while #fillVisibleArea is running
     #fillPromise = null // tracks in-progress #fillVisibleArea for awaiting
     #stabilizing = false // true while #display is stabilizing layout
@@ -1042,12 +1403,32 @@ export class Paginator extends HTMLElement {
         #container.vertical {
             flex-direction: column;
         }
+        /* Apple WebKit (iOS/macOS) composites large, persistent layers without
+           the ~1s Blink freeze Android Chromium hits at high DPR (the reason
+           these promotion hints were dropped and rafAnimateScroll was added).
+           When the host opts in, restore persistent compositor layers for the
+           container and each view so the GPU cssAnimateScroll page-turn stays
+           smooth on 120Hz ProMotion instead of promoting a layer on-demand
+           every turn (readest#4768). Paginated mode only; scrolled mode does
+           its own compositing below. */
+        :host([gpu-composite]:not([flow="scrolled"])) #container,
+        :host([gpu-composite]:not([flow="scrolled"])) #container > * {
+            transform: translateZ(0);
+        }
         :host([flow="scrolled"]) #container {
             grid-column: 2 / 5;
             grid-row: 1 / -1;
             overflow: auto;
             overflow-anchor: auto;
             flex-direction: column;
+            /* Composite the scroll container so its scrollbar repaints on the
+               compositor thread; the main-thread scrollbar fails to
+               re-invalidate after content-size changes (adjacent-section
+               preloading right after open), so on Windows' always-on
+               scrollbars it vanishes shortly after the book opens
+               (readest#4470). Scoped to scrolled mode to leave the paginated
+               page-turn path un-composited. */
+            transform: translateZ(0);
         }
         :host([flow="scrolled"]) #container.vertical {
             flex-direction: row;
@@ -1099,13 +1480,20 @@ export class Paginator extends HTMLElement {
         this.#footer = this.#root.getElementById('footer')
 
         this.#observer.observe(this.#container)
+        const scrolledScrollRelocate = () => {
+            // Skip entirely while stabilizing — preserve #justAnchored
+            // so the first post-stabilization fire still sees it.
+            if (this.#stabilizing) return
+            if (this.#justAnchored) this.#justAnchored = false
+            else this.#afterScroll('scroll')
+        }
+        // Start time of the current unbroken run of scroll events, for the
+        // periodic mid-scroll relocate below; null when no run is in progress.
+        let scrollBurstStart = null
         const debouncedScroll = debounce(() => {
+            scrollBurstStart = null
             if (this.scrolled && !this.#isAnimating) {
-                // Skip entirely while stabilizing — preserve #justAnchored
-                // so the first post-stabilization fire still sees it.
-                if (this.#stabilizing) return
-                if (this.#justAnchored) this.#justAnchored = false
-                else this.#afterScroll('scroll')
+                scrolledScrollRelocate()
                 // Backward preloading is handled eagerly in the (non-debounced)
                 // scroll listener below, mirroring the forward buffer.
             } else if (!this.scrolled) {
@@ -1119,8 +1507,14 @@ export class Paginator extends HTMLElement {
             // snap animation #isAnimating is set and the destination background
             // is already in place, so the rebuild is skipped.
             if (!this.scrolled && !this.#isAnimating) this.#replaceBackground()
-            // Preload forward when fewer than minPages ahead
-            if (!this.noPreload && !this.noContinuousScroll && !this.#filling && !this.#stabilizing) {
+            // Preload forward when fewer than minPages ahead. Skip while a finger
+            // drag is in progress: loading a section runs columnize/expand on the
+            // main thread, which drops frames mid-swipe (readest#4785). The buffer
+            // is still 4+ pages deep during a one-page drag, and the scroll that
+            // settles the gesture re-fires this with the finger already up, so the
+            // top-up just moves off the active drag instead of being skipped.
+            if (!this.noPreload && !this.noContinuousScroll && !this.#filling
+                && !this.#stabilizing && !this.#touchScrolled) {
                 const minPages = 5
                 const pagesAhead = this.size > 0
                     ? Math.floor((this.#renderedViewSize - this.#renderedEnd) / this.size)
@@ -1168,6 +1562,23 @@ export class Paginator extends HTMLElement {
                     }
                 }
             }
+            // A scroll that never pauses — the Auto Scroll reading mode, a
+            // held scroll key — resets the trailing debounce forever, so the
+            // scrolled-mode relocate (and with it reading progress) would only
+            // fire once the scrolling stopped (readest#5635). Relocate at most
+            // once per SCROLL_RELOCATE_MAX_WAIT while the run of scroll events
+            // lasts; the debounced call still reports the final position and
+            // ends the run. Skipped during a finger drag for the same reason
+            // preloading is: the measurement drops frames mid-swipe, and the
+            // release settles through the debounce anyway (readest#4785).
+            if (this.scrolled && !this.#isAnimating && !this.#touchScrolled) {
+                const now = Date.now()
+                if (scrollBurstStart == null) scrollBurstStart = now
+                else if (now - scrollBurstStart >= SCROLL_RELOCATE_MAX_WAIT) {
+                    scrollBurstStart = now
+                    scrolledScrollRelocate()
+                }
+            }
             debouncedScroll()
         })
 
@@ -1175,10 +1586,12 @@ export class Paginator extends HTMLElement {
         this.addEventListener('touchstart', this.#onTouchStart.bind(this), opts)
         this.addEventListener('touchmove', this.#onTouchMove.bind(this), opts)
         this.addEventListener('touchend', this.#onTouchEnd.bind(this))
+        this.addEventListener('touchcancel', this.#onTouchCancel.bind(this))
         this.addEventListener('load', ({ detail: { doc } }) => {
             doc.addEventListener('touchstart', this.#onTouchStart.bind(this), opts)
             doc.addEventListener('touchmove', this.#onTouchMove.bind(this), opts)
             doc.addEventListener('touchend', this.#onTouchEnd.bind(this))
+            doc.addEventListener('touchcancel', this.#onTouchCancel.bind(this))
         })
 
         this.addEventListener('relocate', ({ detail }) => {
@@ -1383,13 +1796,11 @@ export class Paginator extends HTMLElement {
         if (!this.#directionCache.has(index)) return true
         return this.#directionCache.get(index) === this.#vertical
     }
-    // Update the #background grid so each column shows the correct section's
-    // background. Pass atPosition to pre-compute for a destination scroll
-    // position (e.g. before an animation starts).
-    #replaceBackground(atPosition) {
-        const doc = this.#primaryView?.document
-        if (!doc?.documentElement) return
-        if (this.noBackground) return
+    // Read the theme/texture style off the primary section's <html> and return a
+    // resolver that maps a view's raw background onto the active theme. This is a
+    // forced style read (getComputedStyle), so callers in the animation hot path
+    // do it once via #computePaginatedBgContext rather than every frame.
+    #readBackgroundStyle(doc) {
         const htmlStyle = doc.defaultView.getComputedStyle(doc.documentElement)
         const themeBgColor = htmlStyle.getPropertyValue('--theme-bg-color')
         const overrideColor = htmlStyle.getPropertyValue('--override-color') === 'true'
@@ -1409,50 +1820,58 @@ export class Paginator extends HTMLElement {
             }
             return background
         }
-
+        return { fallbackBg, hasTexture, resolveBackground }
+    }
+    // Snapshot every input #paintPaginatedBackground needs that stays constant for
+    // the duration of a scroll animation: the theme/texture style, the
+    // background+container geometry, and each rendered view's size and resolved
+    // background. Returns null when there is nothing to paint (no primary doc,
+    // backgrounds disabled, or scrolled mode). Built once per animation so the
+    // per-frame repaint never re-runs getComputedStyle or one
+    // getBoundingClientRect per view — those forced reads, multiplied by the views
+    // preloaded at a chapter boundary, are what dropped frames mid-swipe
+    // (readest#4785).
+    #computePaginatedBgContext() {
+        const doc = this.#primaryView?.document
+        if (!doc?.documentElement) return null
+        if (this.noBackground) return null
+        if (this.scrolled) return null
+        const { fallbackBg, hasTexture, resolveBackground } = this.#readBackgroundStyle(doc)
+        const bgRect = this.#background.getBoundingClientRect()
+        const containerRect = this.#container.getBoundingClientRect()
+        const startEdge = this.#vertical ? 'top' : 'left'
+        const bgSize = bgRect[this.sideProp]
+        const inset = containerRect[startEdge] - bgRect[startEdge]
+        const containerSize = containerRect[this.sideProp]
+        const views = this.#sortedViews.map(([, view]) => ({
+            size: view.element.getBoundingClientRect()[this.sideProp],
+            bg: textureAwareBackground(resolveBackground(view.docBackground), hasTexture),
+        }))
+        return { fallbackBg, hasTexture, bgSize, inset, containerSize, views }
+    }
+    // Paint one full-bleed background segment per rendered view from a previously
+    // computed context, positioned so each tracks its content on screen at the
+    // given scroll position. Rebuilding on every scroll keeps the backgrounds
+    // glued to the content during a swipe drag — so when two sections with
+    // different backgrounds are both visible, each half shows its own colour
+    // instead of one flat colour flashing across the viewport. Only writes layout
+    // (no reads), so it is safe to run every animation frame.
+    #paintPaginatedBackground(ctx, atPosition) {
         // Reset any inline backgrounds left over from a previous mode so the
         // host's texture isn't occluded after toggling.
         this.#background.style.background = ''
         for (const [, view] of this.#sortedViews) {
             view.element.style.background = ''
         }
-
-        if (this.scrolled) {
-            // In scrolled mode, set background directly on each view element
-            // so it scrolls with the content. The static #background provides
-            // the fallback color for margins and gaps between views.
-            this.#background.innerHTML = ''
-            this.#background.style.display = ''
-            this.#background.style.background = hasTexture ? '' : fallbackBg
-            for (const [, view] of this.#sortedViews) {
-                const resolved = resolveBackground(view.docBackground)
-                view.element.style.background = textureAwareBackground(resolved, hasTexture)
-            }
-            return
-        }
-
-        // Paint one full-bleed background segment per rendered view, positioned
-        // so each tracks its content on screen. Rebuilding on every scroll keeps
-        // the backgrounds glued to the content during a swipe drag — so when two
-        // sections with different backgrounds are both visible, each half shows
-        // its own colour instead of one flat colour flashing across the viewport.
-        const bgRect = this.#background.getBoundingClientRect()
-        const containerRect = this.#container.getBoundingClientRect()
-        const startEdge = this.#vertical ? 'top' : 'left'
-        const bgSize = bgRect[this.sideProp]
-        const inset = containerRect[startEdge] - bgRect[startEdge]
         const scrollPos = Math.abs(atPosition ?? this.#renderedStart)
-        const views = this.#sortedViews.map(([, view]) => ({
-            size: view.element.getBoundingClientRect()[this.sideProp],
-            bg: textureAwareBackground(resolveBackground(view.docBackground), hasTexture),
-        }))
-        const segments = computeBackgroundSegments(views, scrollPos, bgSize, inset, this.size)
+        const segments = computeBackgroundSegments(
+            ctx.views, scrollPos, ctx.bgSize, ctx.inset, ctx.containerSize)
 
         this.#background.innerHTML = ''
         this.#background.style.display = ''
         // Under a texture, leave the container transparent so the host texture
         // shows through the gaps a transparent page no longer fills (readest#4399).
-        this.#background.style.background = hasTexture ? '' : fallbackBg
+        this.#background.style.background = ctx.hasTexture ? '' : ctx.fallbackBg
 
         const posProp = this.#vertical ? 'top' : 'left'
         const sizeProp = this.#vertical ? 'height' : 'width'
@@ -1469,6 +1888,36 @@ export class Paginator extends HTMLElement {
             seg.style.backgroundAttachment = 'initial'
             this.#background.appendChild(seg)
         }
+    }
+    // Update the #background grid so each column shows the correct section's
+    // background. Pass atPosition to pre-compute for a destination scroll
+    // position (e.g. before an animation starts). During a scroll animation the
+    // invariant context is snapshotted in #bgAnimContext and reused here so the
+    // per-frame repaint stays read-free.
+    #replaceBackground(atPosition) {
+        const doc = this.#primaryView?.document
+        if (!doc?.documentElement) return
+        if (this.noBackground) return
+
+        if (this.scrolled) {
+            // In scrolled mode, set background directly on each view element
+            // so it scrolls with the content. The static #background provides
+            // the fallback color for margins and gaps between views.
+            const { fallbackBg, hasTexture, resolveBackground } = this.#readBackgroundStyle(doc)
+            this.#background.style.background = ''
+            this.#background.innerHTML = ''
+            this.#background.style.display = ''
+            this.#background.style.background = hasTexture ? '' : fallbackBg
+            for (const [, view] of this.#sortedViews) {
+                const resolved = resolveBackground(view.docBackground)
+                view.element.style.background = textureAwareBackground(resolved, hasTexture)
+            }
+            return
+        }
+
+        const ctx = this.#bgAnimContext ?? this.#computePaginatedBgContext()
+        if (!ctx) return
+        this.#paintPaginatedBackground(ctx, atPosition)
     }
     #beforeRender({ vertical, rtl }) {
         // If writing-mode is about to change, destroy all non-primary
@@ -1559,7 +2008,10 @@ export class Paginator extends HTMLElement {
         const columnWidth = vertical
             ? (size / divisor - marginTop * 1.5 - marginBottom * 1.5)
             : (size / divisor - gap - marginRight / 2 - marginLeft / 2)
-        this.setAttribute('dir', rtl ? 'rtl' : 'ltr')
+        // `dir` mirrors the horizontal scroll coordinates (negative scrollLeft
+        // for RTL). Vertical books page along scrollTop, which never flips, so
+        // an RTL writing mode must not reverse the host grid there.
+        this.setAttribute('dir', rtl && !vertical ? 'rtl' : 'ltr')
 
         // set background to `doc` background
         // this is needed because the iframe does not fill the whole element
@@ -1617,6 +2069,16 @@ export class Paginator extends HTMLElement {
     }
     get noContinuousScroll() {
         return this.scrolled && this.hasAttribute('no-continuous-scroll')
+    }
+    // The layered turn styles (slide/curl, readest#555) rasterize the outgoing
+    // page with the View Transitions API; when the engine lacks it the caller
+    // falls through to the push/two-phase animations, so old WebViews keep
+    // working page turns.
+    get #layeredTurn() {
+        const style = this.getAttribute('turn-style')
+        return (style === 'slide' || style === 'curl')
+            && typeof document.startViewTransition === 'function'
+            ? style : null
     }
     get scrollProp() {
         const { scrolled } = this
@@ -1682,14 +2144,52 @@ export class Paginator extends HTMLElement {
     set containerPosition(newVal) {
         this.#container[this.scrollProp] = newVal
     }
+    // Scroll offsets quantize to whole CSS pixels in both Blink and WebKit
+    // (`scrollTop = 100.5` reads back 100 or 101), so a slow continuous scroll
+    // such as Auto Scroll advances in visible one-pixel steps: at 5px/s that is
+    // one jump every 200ms. The whole pixels stay in the scroll position, which
+    // everything else reads; this carries only the sub-pixel remainder, as a
+    // composited transform on the scrollport itself.
+    //
+    // The transform goes on #container rather than its children on purpose: a
+    // transform on the children shifts their border boxes and shrinks the
+    // container's scrollable overflow, which desynchronizes the scroll math
+    // (readest#5663). Transforming the scrollport moves it as a whole and
+    // leaves its scrollable overflow untouched.
+    get subpixelOffset() {
+        return this.#subpixelOffset
+    }
+    set subpixelOffset(offset) {
+        const value = Number.isFinite(offset) ? offset : 0
+        if (value === this.#subpixelOffset) return
+        this.#subpixelOffset = value
+        // Scrolling forward by `value` moves the content back by the same
+        // amount. Vertical writing pages along the inline axis in scrolled mode.
+        const axis = this.scrollProp === 'scrollLeft' ? 'X' : 'Y'
+        this.#container.style.transform = value
+            ? `translate${axis}(${-value}px) translateZ(0)` : ''
+    }
+    get scrollLocked() {
+        return this.#scrollLocked
+    }
     set scrollLocked(value) {
         this.#scrollLocked = value
     }
 
     scrollBy(dx, dy) {
+        // #scrollBounds is populated by #scrollToPage and stays unset until
+        // the first page settles. A swipe that lands before that happens
+        // (for example a fast swipe right after the reader mounts, or
+        // before a section has finished loading) would otherwise blow up
+        // on the destructuring below — bail out and let the next settled
+        // scroll re-enable swipe-driven motion.
+        if (!this.#scrollBounds) return
         const delta = this.#vertical ? dy : dx
         const [offset, a, b] = this.#scrollBounds
-        const rtl = this.#rtl
+        // RTL flips the forward/backward allowances only on the horizontal
+        // scroll axis (negative scrollLeft); vertical books page along
+        // scrollTop where forward is always positive.
+        const rtl = this.#rtl && !this.#vertical
         const min = rtl ? offset - b : offset - a
         const max = rtl ? offset + a : offset + b
         this.containerPosition = Math.max(min, Math.min(max,
@@ -1700,22 +2200,77 @@ export class Paginator extends HTMLElement {
     // dx, dy: total distance swiped
     // dt: total time of the swipe (ms)
     snap(vx, vy, dx, dy, dt) {
-        const velocity = this.#vertical ? vy : vx
-        const avgVelocity = this.#vertical ? dy / dt : dx / dt
+        // Same guard as scrollBy: an early swipe whose touchend fires
+        // before the first #scrollToPage seeds #scrollBounds would crash
+        // on the destructuring. Skip the snap; the next settled scroll
+        // populates the bounds and subsequent swipes work normally.
+        if (!this.#scrollBounds) return
+        // Page-turn swipes are horizontal in every writing mode: vertical-rl
+        // books turn pages right-to-left like printed Japanese books
+        // (readest#624), vertical-lr left-to-right. A predominantly vertical
+        // swipe on a vertical book still pages along the block axis so the
+        // legacy gesture keeps working.
         const horizontal = Math.abs(vx) * 2 > Math.abs(vy)
-        const orthogonal = this.#vertical ? !horizontal : horizontal
-        const [offset, a, b] = this.#scrollBounds
-        const size = this.size
-        const start = this.#renderedStart
-        const end = this.#renderedEnd
+        const useHorizontal = horizontal || !this.#vertical
         const pages = this.#renderedPages
-        const min = Math.abs(offset) - a
-        const max = Math.abs(offset) + b
-        const snapping = this.hasAttribute('animated') && !this.hasAttribute('eink')
-        const v =  snapping ? velocity : avgVelocity
-        const d = v * (this.#rtl ? -size : size) * (orthogonal ? 1 : 0)
-        const snapOffset = (isNaN(d) ? 0 : snapping ? d * 2 : d * 10)
-        const page = Math.floor(Math.max(min, Math.min(max, (start + end) / 2 + snapOffset)) / size)
+        let page
+        if (this.#vertical && useHorizontal && !this.#layeredTurn
+            && this.hasAttribute('animated') && !this.hasAttribute('eink')) {
+            // Drag-follow gestures on vertical books (readest#624): the views
+            // tracked the finger, so judge the turn like a paged carousel by
+            // where the drag ended plus the release flick, instead of the
+            // displacement heuristic below (which over-commits once content
+            // visibly follows the finger).
+            const width = this.#container.getBoundingClientRect().width
+            const forwardSign = this.#rtl ? 1 : -1
+            const dragged = this.#dragTranslateX
+            // Flick direction in translate space: a rightward finger (vx < 0)
+            // drags the views right.
+            const flick = Math.abs(vx) > 0.3 ? -Math.sign(vx) : 0
+            let turn
+            if (Math.abs(dragged) > width / 2) {
+                // Past halfway: commit unless flicked back the other way.
+                turn = flick === -Math.sign(dragged) ? 0 : Math.sign(dragged)
+            } else if (flick && (!dragged || flick === Math.sign(dragged))) {
+                turn = flick
+            } else {
+                turn = 0
+            }
+            page = this.#renderedPage + turn * forwardSign
+        } else {
+            const velocity = useHorizontal ? vx : vy
+            const avgVelocity = useHorizontal ? dx / dt : dy / dt
+            // Without drag-follow (eink, animation off, block-axis swipes,
+            // layered turn styles) the scroll position never moves with the
+            // finger; judge the whole gesture by displacement (avgVelocity)
+            // like the eink path.
+            const snapping = this.hasAttribute('animated') && !this.hasAttribute('eink')
+                && !this.#vertical && !this.#layeredTurn
+            // Drag-follow releases are judged by the release flick, so their
+            // alignment uses the flick (last-sample) velocities. Displacement-
+            // judged releases weigh the WHOLE gesture and their alignment must
+            // too: the last-sample ratio is lift-off jitter — a vertical swipe
+            // whose finger hooks sideways in its final milliseconds read as
+            // horizontal, and the displacement heuristic amplified the tiny
+            // net x-drift into a random page turn (layered slide on Android).
+            const aligned = useHorizontal
+                ? (snapping ? horizontal : Math.abs(dx) > Math.abs(dy))
+                : true
+            // Horizontal swipes advance against the page progression (RTL:
+            // next page is to the left); block-axis swipes always advance
+            // with the scroll axis.
+            const sign = useHorizontal && this.#rtl ? -1 : 1
+            const [offset, a, b] = this.#scrollBounds
+            const size = this.size
+            const start = this.#renderedStart
+            const end = this.#renderedEnd
+            const min = Math.abs(offset) - a
+            const max = Math.abs(offset) + b
+            const v =  snapping ? velocity : avgVelocity
+            const d = v * sign * size * (aligned ? 1 : 0)
+            const snapOffset = (isNaN(d) ? 0 : snapping ? d * 2 : d * 10)
+            page = Math.floor(Math.max(min, Math.min(max, (start + end) / 2 + snapOffset)) / size)
+        }
         const dir = page < 0 ? -1 : page >= pages ? 1 : null
         const doGoTo = () => {
             if (!dir) return
@@ -1729,46 +2284,130 @@ export class Paginator extends HTMLElement {
             })
         }
         // Out of range — skip animation, go straight to adjacent section
-        if (dir) return doGoTo()
+        if (dir) {
+            if (this.#vertical) {
+                const sorted = this.#sortedViews
+                const edgeIndex = dir < 0
+                    ? sorted[0]?.[0] ?? this.#primaryIndex
+                    : sorted[sorted.length - 1]?.[0] ?? this.#primaryIndex
+                // Book boundary: nowhere to go, settle the drag back.
+                if (this.#adjacentIndex(dir, edgeIndex) == null) return this.#settleDrag()
+                this.#settleDrag(true)
+            }
+            return doGoTo()
+        }
         this.#scrollToPage(page, 'snap')
     }
     #onTouchStart(e) {
+        const previousState = this.#touchState
+        const replacementTouch = Boolean(previousState?.active)
+        if (replacementTouch) this.#rejectLayeredGesture(previousState)
+        const multiTouch = e.touches.length > 1
         const touch = e.changedTouches[0]
+        const currentTarget = e.currentTarget
+        const isInnerDocument = currentTarget?.nodeType === 9
+        const bounds = isInnerDocument
+            ? { left: 0, width: currentTarget.documentElement?.clientWidth ?? 0 }
+            : this.getBoundingClientRect()
+        const localX = (touch?.clientX ?? 0) - bounds.left
+        // Hosts can reserve a left-side control strip (for example, a vertical
+        // brightness gesture) without disabling horizontal pagination there.
+        // Only the low-slop fast paths are withheld; the normal fallback stays.
+        const reservedLeftRatio = Math.max(0, Math.min(0.5,
+            Number(this.getAttribute('turn-gesture-left-inset')) || 0))
+        const earlyClaimBlocked = bounds.width > 0
+            && localX <= bounds.width * reservedLeftRatio
+        const edgeDirection = bounds.width > 0
+            ? !earlyClaimBlocked && localX <= bounds.width * LAYERED_EDGE_REGION ? -1
+                : localX >= bounds.width * (1 - LAYERED_EDGE_REGION) ? 1 : 0
+            : 0
+        const blocked = Boolean(multiTouch || this.#vtFinishing || this.#vtProgrammatic)
         this.#touchState = {
             x: touch?.screenX, y: touch?.screenY,
             t: e.timeStamp,
             vx: 0, xy: 0,
             dx: 0, dy: 0,
             dt: 0,
+            releaseSamples: [{ distance: 0, time: e.timeStamp }],
+            lastMovementTime: e.timeStamp,
+            active: true,
+            blocked,
+            layeredGesture: blocked ? 'rejected' : 'pending',
+            layeredEarlyClaimBlocked: earlyClaimBlocked,
+            layeredEdgeDirection: edgeDirection,
+            layeredHorizontalDirection: 0,
+            layeredHorizontalSamples: 0,
+            layeredHorizontalSampleTime: null,
         }
+        if (replacementTouch || multiTouch) this.#touchScrolled = false
         // Hint to browser that scrolling will occur for better GPU layer management
         const pv = this.#primaryView
         if (pv?.element) {
             pv.element.style.willChange = 'transform'
         }
+        // A touch on a vertical book takes over any in-flight page-turn slide
+        // or settle: freeze the views where they are and let the drag continue
+        // from that offset. Also re-syncs the drag offset to the rendered
+        // transform so a stale value can never leak into the next gesture.
+        if (this.#vertical && !this.scrolled && !this.#layeredTurn) {
+            this.#slideTurnId++
+            this.#isAnimating = false
+            const children = [...this.#container.children]
+            const transform = children[0] && getComputedStyle(children[0]).transform
+            const m41 = transform && transform !== 'none' ? new DOMMatrix(transform).m41 : 0
+            this.#dragTranslateX = m41
+            for (const el of children) {
+                if (!m41 && !el.style.transform && !el.style.transition) continue
+                el.style.transition = 'none'
+                el.style.transform = m41 ? `translateX(${m41}px)` : ''
+            }
+        }
+        // Snapshot the invariant background paint inputs for the whole drag. The
+        // layout is settled at the start of a gesture and only the scroll offset
+        // changes while the finger moves, so every per-move #replaceBackground()
+        // reuses this instead of forcing a fresh style+layout read each frame
+        // (readest#4785). Cleared in #onTouchEnd; the snap that follows rebuilds
+        // its own.
+        this.#bgAnimContext = this.scrolled ? null : this.#computePaginatedBgContext()
     }
     #onTouchMove(e) {
         const state = this.#touchState
-        if (state.pinched) return
+        if (!state?.active || state.blocked) return
+        if (e.touches.length > 1) {
+            if (this.#touchScrolled) e.preventDefault()
+            this.#rejectLayeredGesture(state)
+            return
+        }
+        if (state.pinched) {
+            this.#rejectLayeredGesture(state)
+            return
+        }
         state.pinched = globalThis.visualViewport.scale > 1
-        if (this.scrolled || state.pinched) return
+        if (state.pinched) {
+            this.#rejectLayeredGesture(state)
+            return
+        }
+        if (this.scrolled) return
         // When the host opts out of swipe-to-paginate, let touch events reach
         // native behavior (text selection, etc.) without us tracking or
         // pre-empting them.
-        if (this.hasAttribute('no-swipe')) return
-        if (e.touches.length > 1) {
-            if (this.#touchScrolled) e.preventDefault()
+        if (this.hasAttribute('no-swipe')) {
+            this.#rejectLayeredGesture(state)
             return
         }
         const doc = this.#primaryView?.document
         const selection = doc?.getSelection()
         if (selection && selection.rangeCount > 0 && !selection.isCollapsed) {
+            this.#rejectLayeredGesture(state)
             return
         }
         const touch = e.changedTouches[0]
         const isStylus = touch.touchType === 'stylus'
         if (!isStylus) e.preventDefault()
-        if (this.#scrollLocked) return
+        if (this.#scrollLocked) {
+            this.#rejectLayeredGesture(state)
+            return
+        }
         const x = touch.screenX, y = touch.screenY
         const dx = state.x - x, dy = state.y - y
         const dt = e.timeStamp - state.t
@@ -1780,34 +2419,511 @@ export class Paginator extends HTMLElement {
         state.dx += dx
         state.dy += dy
         state.dt += dt
+        updateReleaseSample(state, state.dx, e.timeStamp)
         this.#touchScrolled = true
         if (!this.hasAttribute('animated') || this.hasAttribute('eink')) return
+        // Layered turn styles track the finger by scrubbing a paused view
+        // transition: the outgoing snapshot follows the drag over the still
+        // incoming page, then commits or reverses on release.
+        if (this.#layeredTurn) {
+            if (!this.#vtDrag) this.#layeredDragStart(state, dx, dy)
+            const drag = this.#vtDrag
+            if (drag) {
+                // Net finger travel along the forward direction (rtl books
+                // advance with a rightward finger).
+                const along = this.#rtl ? -state.dx : state.dx
+                const totalDistance = drag.forward ? along : -along
+                // Slide begins visually flat at the point where the gesture
+                // arena awards ownership. The consumed recognition distance
+                // still contributes to release intent below, but no longer
+                // appears as a first-frame jump. Curl preserves its existing
+                // touchstart-relative fold.
+                const visualDistance = drag.style === 'slide'
+                    ? totalDistance - drag.visualOriginDistance
+                    : totalDistance
+                drag.progress = Math.max(0, Math.min(1,
+                    visualDistance / drag.width))
+                this.#vtDragScrub()
+            }
+            return
+        }
         if (!this.#vertical && Math.abs(state.dx) >= Math.abs(state.dy) && !this.hasAttribute('eink') && (!isStylus || Math.abs(dx) > 1)) {
             this.scrollBy(dx, 0)
-        } else if (this.#vertical && Math.abs(state.dx) < Math.abs(state.dy) && !this.hasAttribute('eink') && (!isStylus || Math.abs(dy) > 1)) {
-            this.scrollBy(0, dy)
+        } else if (this.#vertical && Math.abs(state.dx) >= Math.abs(state.dy) && (!isStylus || Math.abs(dx) > 1)) {
+            // Vertical books track a horizontal finger by translating the
+            // views sideways: their pages stack along the vertical scroll
+            // axis, so the scroll offset itself cannot follow the finger
+            // (readest#624). The turn commits or settles on release in snap().
+            this.#dragBy(dx)
         }
     }
-    #onTouchEnd() {
+    // Prepare the document for a layered page turn: choreography classes on
+    // the root and the view-transition-name on the turn boundary. The host
+    // app can mark a wider boundary with [data-view-transition-root] (e.g.
+    // a wrapper that also contains its page header and footer, so the
+    // furniture turns with the page in both layers); otherwise the outermost
+    // shadow host in the document tree is named, since shadow-internal names
+    // are tree-scoped away from the document-level pseudo selectors.
+    #vtSetup(style, forward, scrubbing = false) {
+        injectViewTransitionStyles()
+        const html = document.documentElement
+        const side = this.#rtl ? 'right' : 'left'
+        // Which side the curl fold consumes the old page from: the outer
+        // edge going forward, the spine going backward.
+        const eatSide = (forward !== this.#rtl) ? 'right' : 'left'
+        const classes = ['foliate-vt', `foliate-vt-${style}`,
+            forward ? 'foliate-vt-forward' : 'foliate-vt-backward',
+            `foliate-vt-${side}`, `foliate-vt-eat-${eatSide}`]
+        if (scrubbing) classes.push('foliate-vt-scrub')
+        let namedHost = this
+        while (namedHost.getRootNode() instanceof ShadowRoot) {
+            namedHost = namedHost.getRootNode().host
+        }
+        namedHost = namedHost.closest('[data-view-transition-root]') ?? namedHost
+        namedHost.style.viewTransitionName = 'foliate-turn'
+        this.#vtNamedHost = namedHost
+        // Back the turn layers with the page colour: snapshots of books or
+        // themes without an opaque background (e.g. textured themes) would
+        // otherwise blend the two pages instead of occluding.
+        const doc = this.#primaryView?.document
+        const themeBg = doc?.documentElement
+            ? doc.defaultView.getComputedStyle(doc.documentElement)
+                .getPropertyValue('--theme-bg-color').trim()
+            : ''
+        html.style.setProperty('--foliate-vt-bg', themeBg || 'Canvas')
+        html.classList.remove(...VIEW_TRANSITION_CLASSES)
+        html.classList.add(...classes)
+        return namedHost
+    }
+    #vtCleanup() {
+        const html = document.documentElement
+        html.classList.remove(...VIEW_TRANSITION_CLASSES)
+        html.style.removeProperty('--foliate-vt-bg')
+        this.#vtNamedHost?.style.removeProperty('view-transition-name')
+        this.#vtNamedHost = null
+    }
+    // Permanently yield this touch sequence to another gesture owner. If the
+    // layered snapshot already exists, cancel it through the normal lifecycle
+    // instead of letting later samples (or a replacement finger) scrub it.
+    #rejectLayeredGesture(state = this.#touchState) {
+        if (state) {
+            state.layeredGesture = 'rejected'
+            state.layeredHorizontalDirection = 0
+            state.layeredHorizontalSamples = 0
+            state.layeredHorizontalSampleTime = null
+        }
+        const drag = this.#vtDrag
+        if (!drag) return
+        this.#vtDrag = null
+        this.#finishLayeredDrag(drag, false)
+    }
+    // Begin a finger-tracked layered turn (readest#555). Edge-originated
+    // gestures can claim on their first clear inward move. In the middle, two
+    // consecutive horizontal samples can claim after 6px; a vertical gesture
+    // locks out the turn before a landing wobble can become a page animation.
+    // Ambiguous trajectories retain the established 24px + 1.5x fallback.
+    // Once claimed, the existing `before-capture` lifecycle event explicitly
+    // transfers ownership to the layered turn.
+    #layeredDragStart(state, dx, dy) {
+        if (this.#vtDrag || this.#vtFinishing || this.#vtProgrammatic || !this.#scrollBounds) return
+        const style = this.#layeredTurn
+        if (!style) return
+        if (state.layeredGesture !== 'pending') return
+
+        const absDx = Math.abs(state.dx)
+        const absDy = Math.abs(state.dy)
+        if (absDy >= LAYERED_VERTICAL_REJECT_PX && absDy > absDx) {
+            state.layeredGesture = 'rejected'
+            return
+        }
+
+        const direction = Math.sign(dx)
+        const locallyHorizontal = direction !== 0 && Math.abs(dx) > Math.abs(dy)
+        const clearlyHorizontal = locallyHorizontal
+            && Math.abs(dx) >= Math.abs(dy) * LAYERED_FALLBACK_DOMINANCE
+        const cumulativelyHorizontal = absDx
+            >= absDy * LAYERED_FALLBACK_DOMINANCE
+        if (locallyHorizontal && cumulativelyHorizontal) {
+            const recentSample = state.layeredHorizontalSampleTime != null
+                && state.t - state.layeredHorizontalSampleTime
+                    <= LAYERED_EARLY_SAMPLE_INTERVAL_MS
+            if (state.layeredHorizontalDirection === direction && recentSample) {
+                state.layeredHorizontalSamples++
+            } else {
+                state.layeredHorizontalDirection = direction
+                state.layeredHorizontalSamples = 1
+            }
+            state.layeredHorizontalSampleTime = state.t
+        } else {
+            state.layeredHorizontalDirection = 0
+            state.layeredHorizontalSamples = 0
+            state.layeredHorizontalSampleTime = null
+        }
+
+        const edgeClaim = state.layeredEdgeDirection !== 0
+            && !state.layeredEarlyClaimBlocked
+            && direction === state.layeredEdgeDirection
+            && Math.sign(state.dx) === state.layeredEdgeDirection
+            && clearlyHorizontal
+            && cumulativelyHorizontal
+        const earlyCenterClaim = state.layeredEdgeDirection === 0
+            && !state.layeredEarlyClaimBlocked
+            && state.layeredHorizontalSamples >= 2
+            && absDx >= LAYERED_EARLY_CLAIM_PX
+            && Math.sign(state.dx) === state.layeredHorizontalDirection
+        const fallbackClaim = absDx >= LAYERED_FALLBACK_CLAIM_PX
+            && absDx >= absDy * LAYERED_FALLBACK_DOMINANCE
+        if (!edgeClaim && !earlyCenterClaim && !fallbackClaim) return
+
+        // Finger travel along the forward direction decides which neighbor
+        // page gets snapshotted.
+        const along = this.#rtl ? -state.dx : state.dx
+        const forward = along > 0
+        state.layeredGesture = 'claimed'
+        // Gesture ownership is independent of whether an adjacent page exists.
+        // At a book boundary the turn cannot start, but the host must still
+        // suppress the browser's synthesized click for this horizontal drag.
+        // Keep this separate from layered-turn-state so the established
+        // snapshot lifecycle remains unchanged.
+        this.dispatchEvent(new CustomEvent('layered-turn-gesture-claimed', {
+            detail: { style, forward },
+        }))
+        const pages = this.#renderedPages
+        const target = this.#renderedPage + (forward ? 1 : -1)
+        if (target < 0 || target >= pages) return
+        const offset = this.size * (this.#rtl && !this.#vertical ? -target : target)
+        ++this.#slideTurnId
+        this.#isAnimating = true
+        this.dispatchEvent(new CustomEvent('layered-turn-state', {
+            detail: { phase: 'before-capture', style, forward },
+        }))
+        const startPosition = this.containerPosition
+        let turnRoot
+        let transition
+        try {
+            turnRoot = this.#vtSetup(style, forward, true)
+            transition = document.startViewTransition(() => {
+                this.containerPosition = offset
+                if (!this.scrolled) {
+                    this.#bgAnimContext = null
+                    this.#replaceBackground()
+                }
+                // The old snapshot now owns the visible toolbar. Let the host hide
+                // the live copy synchronously before the new snapshot is captured,
+                // so its regular opacity transition cannot run beside the page.
+                this.dispatchEvent(new CustomEvent('layered-turn-state', {
+                    detail: { phase: 'covered', style, forward },
+                }))
+            })
+        } catch {
+            // A synchronous setup/capture failure must release both the global
+            // View Transition styling and the host's before-capture ownership.
+            // Reject the rest of this touch so touchend cannot reinterpret it
+            // as a legacy snap after the layered lifecycle has already ended.
+            state.layeredGesture = 'rejected'
+            this.containerPosition = startPosition
+            this.#vtCleanup()
+            this.#isAnimating = false
+            this.dispatchEvent(new CustomEvent('layered-turn-state', {
+                detail: { phase: 'finished', style, forward, committed: false },
+            }))
+            return
+        }
+        const drag = {
+            transition, offset, startPosition, forward,
+            style, progress: 0, anims: null,
+            visualOriginDistance: style === 'slide'
+                ? Math.max(0, forward ? along : -along) : 0,
+            // Progress must use the width of the actual named snapshot. The
+            // inner content container can be narrower because of page margins;
+            // using it makes the sheet gradually outrun the finger.
+            width: turnRoot.getBoundingClientRect().width
+                || this.#container.getBoundingClientRect().width,
+        }
+        this.#vtDrag = drag
+        transition.ready.then(() => {
+            if (this.#vtDrag !== drag && this.#vtFinishing !== drag) return
+            const anims = document.getAnimations().filter(a =>
+                a.effect?.pseudoElement?.includes('(foliate-turn)'))
+            for (const a of anims) {
+                // CSS is authoritative for linear scrubbing. Keep this as a
+                // best-effort fallback for engines that expose mutable pseudo
+                // animation effects.
+                try { a.effect.updateTiming({ easing: 'linear' }) } catch { /* UA animation */ }
+                a.pause()
+            }
+            drag.anims = anims
+            this.#vtDragScrub(drag)
+            this.dispatchEvent(new CustomEvent('layered-turn-state', {
+                detail: { phase: 'ready', style, forward },
+            }))
+        }, () => {
+            // Capture failed or was skipped; release falls back to snap().
+            if (this.#vtDrag === drag || this.#vtFinishing === drag) drag.failed = true
+        })
+    }
+    #vtDragScrub(drag = this.#vtDrag) {
+        if (!drag?.anims) return
+        for (const a of drag.anims) {
+            const duration = a.effect.getTiming().duration
+            a.currentTime = drag.progress * 0.999
+                * (typeof duration === 'number' ? duration : 300)
+        }
+    }
+    // Resolve a finger-tracked layered turn: play the paused animations to
+    // the end to commit, or reverse them and put the live content back to
+    // cancel. The scroll offset already sits on the target page during the
+    // drag (the snapshot hides it), so cancel restores it under the overlay
+    // before the transition is skipped.
+    async #finishLayeredDrag(drag, commit, playbackRate = 1) {
+        if (this.#vtFinishing === drag) return
+        this.#vtFinishing = drag
+        const { transition, offset, startPosition, style, forward } = drag
+        const { size } = this
+        const id = ++this.#slideTurnId
+        this.#isAnimating = true
+        try {
+            // The update callback owns the old/new snapshot boundary. Await it
+            // before any terminal event so `covered` can never arrive after a
+            // very fast release has already announced cancellation.
+            try { await transition.updateCallbackDone } catch { /* skipped */ }
+            try { await transition.ready } catch { /* capture failed */ }
+            if (id !== this.#slideTurnId) return
+
+            const anims = drag.anims
+            if (anims) for (const a of anims) updatePlaybackRate(a, playbackRate)
+            if (commit) {
+                if (anims) for (const a of anims) a.play()
+                try {
+                    await transition.finished
+                } catch { /* skipped */ }
+            } else {
+                if (anims) {
+                    for (const a of anims) a.reverse()
+                    try {
+                        await Promise.all(anims.map(a => a.finished))
+                    } catch { /* superseded */ }
+                }
+                if (id !== this.#slideTurnId) return
+                // Restore the pre-turn page under the overlay, then drop it.
+                this.containerPosition = startPosition
+                this.dispatchEvent(new CustomEvent('layered-turn-state', {
+                    detail: { phase: 'cancelled', style, forward, committed: false },
+                }))
+                // Give the host two rendering opportunities to paint restored
+                // chrome underneath the now-flat snapshot before it is removed.
+                await new Promise(resolve => requestAnimationFrame(() =>
+                    requestAnimationFrame(resolve)))
+                if (id !== this.#slideTurnId) return
+                try { transition.skipTransition() } catch { /* already done */ }
+                try {
+                    await transition.finished
+                } catch { /* skipped */ }
+            }
+            if (id !== this.#slideTurnId) return
+            this.#vtCleanup()
+            this.#isAnimating = false
+            const finalPosition = commit ? offset : startPosition
+            this.containerPosition = finalPosition
+            this.#scrollBounds = [
+                finalPosition,
+                this.atStart ? 0 : size,
+                this.atEnd ? 0 : size,
+            ]
+            this.#afterScroll('snap')
+            this.dispatchEvent(new CustomEvent('layered-turn-state', {
+                detail: { phase: 'finished', style, forward, committed: commit },
+            }))
+        } finally {
+            if (this.#vtFinishing === drag) this.#vtFinishing = null
+        }
+    }
+    #dragBy(dx) {
+        if (!this.#scrollBounds) return
+        const [, a, b] = this.#scrollBounds
+        const width = this.#container.getBoundingClientRect().width
+        // Exit direction of a forward turn: vertical-rl pages exit right.
+        const forwardSign = this.#rtl ? 1 : -1
+        const max = (forwardSign > 0 ? b : a) > 0 ? width : 0
+        const min = (forwardSign > 0 ? a : b) > 0 ? -width : 0
+        this.#dragTranslateX = Math.max(min, Math.min(max, this.#dragTranslateX - dx))
+        for (const el of this.#container.children) {
+            el.style.transition = 'none'
+            el.style.transform = `translateX(${this.#dragTranslateX}px)`
+        }
+    }
+    // Animate a released drag back to rest when the page did not turn, and
+    // drop the inline drag styles once the views are back in place. Pass
+    // instant=true to drop them without the settle animation.
+    #settleDrag(instant) {
+        const startX = this.#dragTranslateX
+        this.#dragTranslateX = 0
+        const children = [...this.#container.children]
+        if (!children.some(el => el.style.transform)) return
+        const cleanup = () => {
+            for (const el of children) {
+                el.style.willChange = ''
+                el.style.transition = ''
+                el.style.transform = ''
+            }
+        }
+        if (!startX || instant) return cleanup()
+        const id = ++this.#slideTurnId
+        for (const el of children) {
+            el.style.transition = 'transform 150ms ease-out'
+            el.style.transform = 'translateX(0px)'
+        }
+        setTimeout(() => {
+            if (id !== this.#slideTurnId) return
+            cleanup()
+        }, 170)
+    }
+    #onTouchEnd(e) {
         // Remove will-change hint to free GPU resources
         // if (this.#view?.element) {
         //     this.#view.element.style.willChange = 'auto'
         // }
 
-        if (!this.#touchScrolled) return
+        // The drag is over: drop the drag-time paint snapshot so the snap
+        // animation (or any other repaint) rebuilds a fresh context.
+        this.#bgAnimContext = null
+        const state = this.#touchState
+        if (state) state.active = false
+        if (state?.blocked) {
+            this.#touchScrolled = false
+            return
+        }
+
+        if (!this.#touchScrolled) {
+            // A tap that never dragged may still have taken over a mid-flight
+            // transform in #onTouchStart; put the views back to rest.
+            if (this.#vertical && !this.scrolled && this.#dragTranslateX) this.#settleDrag()
+            return
+        }
         this.#touchScrolled = false
         if (this.scrolled) return
         if (this.hasAttribute('no-swipe')) return
+        const layeredRejected = this.#layeredTurn
+            && state?.layeredGesture === 'rejected'
+        // Horizontal books have no block-axis page gesture to preserve.
+        if (layeredRejected && !this.#vertical) return
+
+        // A finger that rested before lifting has no flick momentum; the
+        // last touchmove velocity is stale by the rest duration.
+        if (state && e && e.timeStamp - state.t > RELEASE_PAUSE_THRESHOLD_MS) {
+            state.vx = 0
+            state.vy = 0
+        }
+        const releaseTouch = e?.changedTouches?.[0]
+        let releaseDx = state?.dx ?? 0
+        let releaseDy = state?.dy ?? 0
+        if (state && releaseTouch) {
+            // A quick lift can carry the final sample only in changedTouches.
+            // Use that point consistently for Slide's velocity, progress, and
+            // whole-gesture horizontal-intent guard.
+            releaseDx += state.x - releaseTouch.screenX
+            releaseDy += state.y - releaseTouch.screenY
+        }
+        // Also stamp an unchanged final position. Besides making a deliberate
+        // pause velocity-free, this is defensive against non-standard UAs
+        // that omit touchend.changedTouches.
+        if (state) updateReleaseSample(state, releaseDx, e.timeStamp)
+
+        // A finger-tracked layered turn resolves here. Slide projects recent
+        // release velocity onto its current progress; Curl keeps the existing
+        // last-move flick-or-halfway rule. A page-turn commit also requires
+        // the WHOLE gesture to be predominantly horizontal: a finger
+        // landing with a sideways wobble can start the drag before any
+        // vertical distance accumulates, and the lift-off flick velocity is
+        // jitter — judged alone they turned the page randomly on vertical
+        // toolbar-toggle swipes (Android WebView report).
+        const drag = this.#vtDrag
+        if (drag) {
+            this.#vtDrag = null
+            // Keep Curl's established whole-gesture guard exactly as-is;
+            // Slide uses the actual lift-off point required by its projection.
+            const gestureDx = drag.style === 'slide' ? releaseDx : (state?.dx ?? 0)
+            const gestureDy = drag.style === 'slide' ? releaseDy : (state?.dy ?? 0)
+            const gestureAligned = state
+                ? Math.abs(gestureDx) > Math.abs(gestureDy) : true
+            const alongV = this.#rtl ? -(state?.vx ?? 0) : (state?.vx ?? 0)
+            const recentVx = state ? getReleaseVelocity(state) : 0
+            const recentAlongV = this.#rtl ? -recentVx : recentVx
+            const progressVelocity = recentAlongV * (drag.forward ? 1 : -1)
+            const releaseAlong = this.#rtl ? -releaseDx : releaseDx
+            const releaseDistance = drag.forward ? releaseAlong : -releaseAlong
+            const releaseProgress = Math.max(0, Math.min(1,
+                releaseDistance / drag.width))
+            const releaseVisualProgress = Math.max(0, Math.min(1,
+                (releaseDistance - drag.visualOriginDistance) / drag.width))
+            const projectedProgress = releaseProgress
+                + progressVelocity * SLIDE_RELEASE_PROJECTION_MS / drag.width
+            const curlFlick = Math.abs(alongV) > 0.3
+                ? Math.sign(alongV) * (drag.forward ? 1 : -1) : 0
+            const commit = gestureAligned && (drag.style === 'slide'
+                ? projectedProgress > 0.5
+                : curlFlick > 0 ? true : curlFlick < 0 ? false : drag.progress > 0.5)
+            // Do not scrub a gesture that ended vertically: flashing its final
+            // horizontal component here would defeat the intent guard. A valid
+            // Slide release settles from the actual lift-off position; Curl's
+            // existing progress and commit mapping remain unchanged.
+            if (gestureAligned && drag.style === 'slide') {
+                drag.progress = releaseVisualProgress
+                this.#vtDragScrub(drag)
+            }
+            const targetDirection = (drag.forward ? 1 : -1) * (commit ? 1 : -1)
+            // Settle pacing uses a short release window; the decision above
+            // uses it for the lighter Slide gesture while Curl keeps its
+            // original last-sample commit rule.
+            const releaseSpeed = recentAlongV * targetDirection
+            const playbackRate = layeredSettlePlaybackRate(drag.style, releaseSpeed)
+            this.#finishLayeredDrag(drag, commit, playbackRate)
+            return
+        }
 
         // XXX: Firefox seems to report scale as 1... sometimes...?
         // at this point I'm basically throwing `requestAnimationFrame` at
         // anything that doesn't work
+        const snapState = state
         requestAnimationFrame(() => {
-            if (globalThis.visualViewport.scale === 1) {
-                const { vx, vy, dx, dy, dt } = this.#touchState
-                this.snap(vx, vy, dx, dy, dt)
+            if (globalThis.visualViewport.scale === 1 && snapState
+                && this.#touchState === snapState) {
+                const { vx, vy, dx, dy, dt } = snapState
+                // Direction ownership is final for this touch sequence. Once
+                // vertical wins the layered arena, discard later horizontal
+                // hooks while preserving block-axis paging in vertical books.
+                this.snap(layeredRejected ? 0 : vx, vy,
+                    layeredRejected ? 0 : dx, dy, dt)
             }
         })
+    }
+    #onTouchCancel() {
+        this.#bgAnimContext = null
+        const state = this.#touchState
+        if (state) state.active = false
+        if (state?.blocked) {
+            this.#touchScrolled = false
+            return
+        }
+
+        const drag = this.#vtDrag
+        if (drag) {
+            this.#vtDrag = null
+            this.#touchScrolled = false
+            this.#finishLayeredDrag(drag, false)
+            return
+        }
+
+        const wasScrolled = this.#touchScrolled
+        this.#touchScrolled = false
+        if (this.scrolled || this.hasAttribute('no-swipe')) return
+        if (this.#layeredTurn && state?.layeredGesture === 'rejected'
+            && !this.#vertical) return
+        if (this.#vertical) {
+            this.#settleDrag()
+        } else if (wasScrolled && this.#scrollBounds) {
+            this.#scrollTo(this.#scrollBounds[0], 'snap')
+        }
     }
     // allows one to process rects as if they were LTR and horizontal
     #getRectMapper(view) {
@@ -1820,12 +2936,30 @@ export class Paginator extends HTMLElement {
                     ({ left: size - right - marginTop, right: size - left - marginBottom })
                 : ({ top, bottom }) => ({ left: top - marginTop, right: bottom - marginBottom })
         }
-        const pxSize = this.#renderedPages * this.size
-        return this.#rtl
-            ? ({ left, right }) =>
-                ({ left: pxSize - right, right: pxSize - left })
-            : this.#vertical
-                ? ({ top, bottom }) => ({ left: top, right: bottom })
+        // For RTL the mapper mirrors a rect within the iframe-local
+        // coordinate space of the *target view* (each view is a separate
+        // document with its own column layout), not across the whole
+        // container. Using `#renderedPages * size` (= total width of all
+        // loaded views) was correct only when a single view was loaded;
+        // once #fillVisibleArea pre-loads adjacent sections the total
+        // width grows but the per-view rect coordinates do not change,
+        // so the mapper would scroll the same anchor to a different
+        // (further-right) container offset on every re-anchor — driving
+        // the page off the user's saved position. Use the supplied
+        // view's width when available, falling back to the primary view.
+        const targetView = view ?? this.#primaryView
+        const viewSize = targetView
+            ? targetView.element.getBoundingClientRect()[this.sideProp]
+            : this.#renderedViewSize
+        // Vertical books map the block axis (top/bottom) onto the scroll
+        // axis regardless of page progression: vertical-rl is RTL but its
+        // scrollTop still grows forward, so the RTL mirror below only
+        // applies to horizontal writing.
+        return this.#vertical
+            ? ({ top, bottom }) => ({ left: top, right: bottom })
+            : this.#rtl
+                ? ({ left, right }) =>
+                    ({ left: viewSize - right, right: viewSize - left })
                 : f => f
     }
     async #scrollToRect(rect, reason) {
@@ -1845,26 +2979,92 @@ export class Paginator extends HTMLElement {
     }
     async #scrollTo(offset, reason, smooth) {
         const { size } = this
-        if (this.containerPosition === offset) {
+        // Near-equality, not exact: on fractional device-pixel-ratio screens
+        // (e.g. 2.75) the container scroll rests a sub-pixel off the page
+        // offset, and an exact check made every same-page settle miss this
+        // short-circuit and run a full animation — with the layered turn
+        // styles, a visible full-page view-transition flash on every
+        // vertical toolbar-toggle swipe.
+        if (Math.abs(this.containerPosition - offset) < 1) {
             this.#scrollBounds = [offset, this.atStart ? 0 : size, this.atEnd ? 0 : size]
+            // A released drag that stays on the same page settles back to rest.
+            if (this.#vertical && !this.scrolled) this.#settleDrag()
             this.#afterScroll(reason)
             return
         }
         // FIXME: vertical-rl only, not -lr
         if (this.scrolled && this.#vertical) offset = -offset
         if ((reason === 'snap' || smooth) && this.hasAttribute('animated') && !this.hasAttribute('eink')) {
+            // Layered turn styles: snapshot the outgoing page and animate it
+            // over the live, stationary incoming page (readest#555). Works
+            // for every writing mode since the snapshot is axis-agnostic —
+            // but only for actual page changes: a sub-page settle must not
+            // snapshot and re-slide the page it is already resting on.
+            const turning = Math.abs(offset - this.containerPosition) > size / 2
+            const layered = !this.scrolled && turning ? this.#layeredTurn : null
+            if (layered) return this.#viewTransitionTurn(offset, reason, layered)
             const startPosition = this.containerPosition
             this.#isAnimating = true
+            // Vertical paginated books page along scrollTop but read
+            // horizontally, so a scroll-axis slide would move perpendicular to
+            // the page turn. Run the two-phase horizontal slide instead:
+            // vertical-rl turns forward exit to the right (page progression),
+            // vertical-lr to the left (readest#624).
+            if (!this.scrolled && this.#vertical) {
+                this.#bgAnimContext = null
+                // Oversized sections would composite as one giant layer to
+                // animate the transform (the freeze rafAnimateScroll exists to
+                // avoid), and a native scroll animation cannot move
+                // horizontally here, so swap instantly.
+                if (!this.hasAttribute('gpu-composite')
+                    && this.#renderedViewSize > RAF_ANIMATE_SCROLL_THRESHOLD) {
+                    this.#isAnimating = false
+                    this.#settleDrag(true)
+                    this.containerPosition = offset
+                    this.#scrollBounds = [offset, this.atStart ? 0 : size, this.atEnd ? 0 : size]
+                    this.#afterScroll(reason)
+                    return
+                }
+                const id = ++this.#slideTurnId
+                const forward = offset > startPosition
+                const exitSign = (this.#rtl ? 1 : -1) * (forward ? 1 : -1)
+                const width = this.#container.getBoundingClientRect().width
+                // Continue from a finger drag already in progress.
+                const dragStartX = this.#dragTranslateX
+                this.#dragTranslateX = 0
+                return slideTurnAnimation(
+                    this.#container, this.scrollProp, offset, exitSign, width, 300,
+                    () => id !== this.#slideTurnId,
+                    // Reposition the background segments for the new scroll
+                    // offset while both pages are off-screen.
+                    () => this.#replaceBackground(),
+                    dragStartX,
+                ).then(() => {
+                    if (id !== this.#slideTurnId) return
+                    this.#isAnimating = false
+                    this.#scrollBounds = [offset, this.atStart ? 0 : size, this.atEnd ? 0 : size]
+                    this.#afterScroll(reason)
+                })
+            }
+            // Snapshot the invariant paint inputs once; every per-frame
+            // #replaceBackground below reuses this instead of forcing a fresh
+            // style+layout read each frame (readest#4785).
+            this.#bgAnimContext = this.scrolled ? null : this.#computePaginatedBgContext()
             // For a large section the CSS-transform animation blocks the UI while
             // Blink composites the oversized layer; animate the native scroll
             // offset instead (incremental/tiled, like a swipe), keeping the
-            // per-page backgrounds synced each frame.
-            if (this.#renderedViewSize > RAF_ANIMATE_SCROLL_THRESHOLD) {
+            // per-page backgrounds synced each frame. Hosts that composite large
+            // layers without that freeze (Apple WebKit, via the gpu-composite
+            // opt-in) skip this main-thread fallback and keep the smooth GPU
+            // cssAnimateScroll path even for large sections (readest#4768).
+            if (!this.hasAttribute('gpu-composite')
+                && this.#renderedViewSize > RAF_ANIMATE_SCROLL_THRESHOLD) {
                 return rafAnimateScroll(startPosition, offset, 300, easeOutQuad, x => {
                     this.#container[this.scrollProp] = x
                     if (!this.scrolled) this.#replaceBackground()
                 }).then(() => {
                     this.#isAnimating = false
+                    this.#bgAnimContext = null
                     this.#scrollBounds = [offset, this.atStart ? 0 : size, this.atEnd ? 0 : size]
                     this.#afterScroll(reason)
                 })
@@ -1898,17 +3098,76 @@ export class Paginator extends HTMLElement {
                 300,
             ).then(() => {
                 this.#isAnimating = false
+                this.#bgAnimContext = null
                 this.#scrollBounds = [offset, this.atStart ? 0 : size, this.atEnd ? 0 : size]
                 this.#afterScroll(reason)
             })
         } else {
+            if (this.#vertical && !this.scrolled) this.#settleDrag(true)
             this.containerPosition = offset
             this.#scrollBounds = [offset, this.atStart ? 0 : size, this.atEnd ? 0 : size]
             this.#afterScroll(reason)
         }
     }
+    // Turn the page with a View Transitions snapshot (readest#555): the live
+    // content jumps to the destination inside the transition callback, then
+    // the rasterized outgoing page slides away or curls open ON TOP of it, so
+    // the incoming page stays perfectly still underneath (Apple Books style).
+    // Forward turns move the old snapshot out; backward turns bring the new
+    // snapshot in over the still page. The choreography is selected with
+    // classes on the document root, where the ::view-transition pseudo tree
+    // lives.
+    async #viewTransitionTurn(offset, reason, style) {
+        // A layered transition has exclusive ownership of the document-level
+        // pseudo tree. Ignore overlapping navigation until its lifecycle has
+        // reached cleanup; otherwise the newer generation strands the older
+        // turn before it can dispatch `finished`.
+        if (this.#vtDrag || this.#vtFinishing || this.#vtProgrammatic) return
+        // An accepted keyboard/tap turn owns navigation for the remainder of
+        // any finger that is still down. Permanently reject a pending arena
+        // candidate so its later move cannot reuse the pre-turn start point
+        // and launch a second layered turn after this transition finishes.
+        if (this.#touchState?.active) this.#rejectLayeredGesture(this.#touchState)
+        const { size } = this
+        const startPosition = this.containerPosition
+        // RTL horizontal scroll coordinates are negative; compare magnitudes.
+        const forward = Math.abs(offset) > Math.abs(startPosition)
+        const id = ++this.#slideTurnId
+        this.#isAnimating = true
+        this.#settleDrag(true)
+        this.#vtSetup(style, forward)
+        const transition = document.startViewTransition(() => {
+            this.containerPosition = offset
+            if (!this.scrolled) {
+                this.#bgAnimContext = null
+                this.#replaceBackground()
+            }
+        })
+        const active = { transition, id }
+        this.#vtProgrammatic = active
+        try {
+            try {
+                await transition.finished
+            } catch {
+                // Interrupted or skipped; the newer turn owns the cleanup.
+            }
+            if (id !== this.#slideTurnId) return
+            this.#vtCleanup()
+            this.#isAnimating = false
+            // A neighbor view finishing its load mid-transition re-anchors the
+            // container to the stale pre-turn anchor; re-assert the destination
+            // like the push animation does at its end.
+            this.containerPosition = offset
+            this.#scrollBounds = [offset, this.atStart ? 0 : size, this.atEnd ? 0 : size]
+            this.#afterScroll(reason)
+        } finally {
+            if (this.#vtProgrammatic === active) this.#vtProgrammatic = null
+        }
+    }
     async #scrollToPage(page, reason, smooth) {
-        const offset = this.size * (this.#rtl ? -page : page)
+        // Negative offsets are an artifact of RTL horizontal scroll
+        // coordinates; vertical books page along scrollTop, always positive.
+        const offset = this.size * (this.#rtl && !this.#vertical ? -page : page)
         return this.#scrollTo(offset, reason, smooth)
     }
     async scrollToAnchor(anchor, select, smooth) {
@@ -1923,7 +3182,15 @@ export class Paginator extends HTMLElement {
             // previous column, there is an extra zero width rect in that column
             const rect = Array.from(rects)
                 .find(r => r.width > 0 && r.height > 0 && r.x >= 0 && r.y >= 0) || rects[0]
-            if (!rect) return
+            // An anchor can have no client rects at all: a range over content
+            // that is entirely absolutely positioned (e.g. a Duokan fullscreen
+            // cover pins its only image) has no in-flow boxes. Bailing without
+            // scrolling would leave #scrollBounds unseeded, and scrollBy/snap
+            // then silently drop every swipe on the page (#5263). Settle on
+            // the primary section's start instead.
+            if (!rect) return this.scrolled
+                ? this.#scrollTo(this.#getViewOffset(this.#primaryIndex), reason)
+                : this.#scrollToPage(this.#getPagesBeforeView(this.#primaryIndex), reason)
             await this.#scrollToRect(rect, reason)
             // focus the element when navigating with keyboard or screen reader
             if (reason === 'navigation') {
@@ -1957,7 +3224,9 @@ export class Paginator extends HTMLElement {
         if (!primaryView) return
         const pagesBeforePrimary = this.#getPagesBeforeView(this.#primaryIndex)
         const textPages = primaryView.contentPages
-        if (!textPages) return
+        // Same as the rect-less bail above: a section that measured zero
+        // content pages must still settle so #scrollBounds gets seeded.
+        if (!textPages) return this.#scrollToPage(pagesBeforePrimary, reason)
         // textPages is in column units; convert to spread page for scrolling
         const newColumn = Math.round(anchor * (textPages - 1))
         const newSpreadPage = Math.floor(newColumn / this.columnCount)
@@ -1985,9 +3254,18 @@ export class Paginator extends HTMLElement {
         if (!targetView?.document) return
         const viewOffset = this.#getViewOffset(this.#primaryIndex)
         if (this.scrolled) {
-            // In scrolled mode, the primary view may be scrolled out of
-            // the viewport at a section boundary. Try all visible views
-            // and return the first valid (non-collapsed) range.
+            // In scrolled mode several sections can share the viewport at a
+            // section boundary, and the primary view may even be scrolled out
+            // of view. Prefer the view that covers the viewport centre — that
+            // is the section the reader is actually reading, so its title is
+            // the one to show. Falling back to the first overlapping view (the
+            // old behaviour) would report a thin sliver at the top edge, whose
+            // chapter title no longer matches the dominant content
+            // (readest#4436). Keep that first valid range as a fallback for
+            // when no loaded view covers the centre (e.g. at the very top or
+            // bottom of the book).
+            const center = this.#renderedStart + this.size / 2
+            let fallback
             for (const [index, v] of this.#sortedViews) {
                 if (!v.document) continue
                 const off = this.#getViewOffset(index)
@@ -1997,15 +3275,35 @@ export class Paginator extends HTMLElement {
                 const range = getVisibleRange(v.document,
                     this.#renderedStart - off, this.#renderedEnd - off,
                     this.#getRectMapper(v))
-                if (range && !range.collapsed) return { range, index }
+                if (!range || range.collapsed) continue
+                if (center >= off && center < off + vSize) return { range, index }
+                fallback ??= { range, index }
             }
-            return
+            return fallback
         }
         const range = getVisibleRange(targetView.document,
             this.#renderedStart - viewOffset,
             this.#renderedEnd - viewOffset,
             this.#getRectMapper(targetView))
         return range ? { range, index: this.#primaryIndex } : undefined
+    }
+    // Whether the current Range anchor starts inside the visible range.
+    // Fraction and Element anchors are never considered visible, so they
+    // keep being replaced by the visible range as before.
+    #anchorIsVisible(range) {
+        const anchor = this.#anchor
+        if (!anchor?.startContainer) return false
+        const node = anchor.startContainer
+        // comparePoint throws for a node rooted outside the range's document,
+        // i.e. an anchor in another section or in a torn-down document.
+        if (!node.isConnected || node.ownerDocument !== range.startContainer.ownerDocument)
+            return false
+        try {
+            return range.comparePoint(node, anchor.startOffset) === 0
+        } catch {
+            // The anchored text node has been shortened since (IndexSizeError).
+            return false
+        }
     }
     // Determine which view is primary based on scroll position
     #detectPrimaryView() {
@@ -2080,17 +3378,30 @@ export class Paginator extends HTMLElement {
         if (!range) return
         this.#lastVisibleRange = range
         // don't set new anchor if relocation was to scroll to anchor
-        if (reason !== 'selection' && reason !== 'navigation' && reason !== 'anchor')
+        if (reason === 'selection' || reason === 'navigation' || reason === 'anchor')
+            this.#justAnchored = true
+        // The scroll that re-anchoring itself performs (a resize re-render)
+        // lands here through the debounced container scroll listener. Taking
+        // the reflowed page's visible range as the new anchor then moves the
+        // anchor to that page's start, which precedes the old anchor whenever
+        // the two layouts' page boundaries differ, so the next resize back
+        // settles one page earlier every time (readest#5808). A container
+        // scroll that keeps the anchor on the page is not a navigation away
+        // from it: keep the anchor.
+        else if (reason !== 'container-scroll' || !this.#anchorIsVisible(range))
             this.#anchor = range
-        else this.#justAnchored = true
 
         const index = visibleIndex ?? this.#primaryIndex
         const primaryView = this.#primaryView
         const detail = { reason, range, index }
         if (this.scrolled) {
+            // The relocated index may differ from #primaryIndex (the centre of
+            // the viewport can sit in a different view than its top edge), so
+            // size the fraction against the relocated view to keep it in sync.
+            const indexView = this.#views.get(index) ?? primaryView
             const primaryOffset = this.#getViewOffset(index)
-            const primarySize = primaryView
-                ? primaryView.element.getBoundingClientRect()[this.sideProp] : this.#renderedViewSize
+            const primarySize = indexView
+                ? indexView.element.getBoundingClientRect()[this.sideProp] : this.#renderedViewSize
             detail.fraction = primarySize > 0
                 ? Math.max(0, Math.min(1, (this.#renderedStart - primaryOffset) / primarySize)) : 0
         } else if (this.#renderedPages > 0 && primaryView) {
@@ -2132,6 +3443,14 @@ export class Paginator extends HTMLElement {
             }
             const beforeRender = this.#beforeRender.bind(this)
             await view.load(src, data, afterLoad, beforeRender)
+            if (!view.document?.documentElement || !view.document.body) {
+                this.#destroyView(index)
+                this.#primaryIndex = this.#sortedViews[0]?.[0] ?? -1
+                this.#container.style.opacity = '1'
+                this.#stabilizing = false
+                this.dispatchEvent(new Event('stabilized'))
+                return
+            }
             // Cache direction for future preload boundary checks
             if (view.document) {
                 const dir = getDirection(view.document)
@@ -2217,6 +3536,10 @@ export class Paginator extends HTMLElement {
             const cachedLayout = this.#lastLayout
             const beforeRender = () => cachedLayout
             await view.load(src, data, afterLoad, beforeRender)
+            if (!view.document?.documentElement || !view.document.body) {
+                this.#destroyView(index)
+                return
+            }
             // Cache direction for future preload boundary checks
             if (view.document) {
                 const dir = getDirection(view.document)
@@ -2325,6 +3648,8 @@ export class Paginator extends HTMLElement {
         return index >= 0 && index <= this.sections.length - 1
     }
     async #goTo({ index, anchor, select }) {
+        const section = this.sections[index]
+        if (!section) return
         // Check if the target section has a different writing-mode.
         // If direction changes, we must destroy all views and do a full
         // rebuild via #display — mixed-direction views cannot coexist.
@@ -2417,9 +3742,9 @@ export class Paginator extends HTMLElement {
                 this.setStyles(this.#styles)
                 this.dispatchEvent(new CustomEvent('load', { detail }))
             }
-            await this.#display(Promise.resolve(this.sections[index].load())
+            await this.#display(Promise.resolve(section.load())
                 .then(async src => {
-                    const data = await this.sections[index].loadContent?.()
+                    const data = await section.loadContent?.()
                     return { index, src, data, anchor, onLoad, select }
                 }).catch(e => {
                     console.warn(e)
@@ -2549,7 +3874,7 @@ export class Paginator extends HTMLElement {
             } else $style.textContent = styles
 
             // needed because the resize observer doesn't work in Firefox
-            view.document?.fonts?.ready?.then(() => view.expand())
+            fontsReady(view.document).then(() => view.expand())
         }
 
         // NOTE: needs `requestAnimationFrame` in Chromium
@@ -2571,6 +3896,19 @@ export class Paginator extends HTMLElement {
         this.#primaryView?.destroyLoupe()
     }
     destroy() {
+        const transition = (this.#vtDrag ?? this.#vtFinishing)?.transition
+            ?? this.#vtProgrammatic?.transition
+        this.#vtDrag = null
+        this.#vtFinishing = null
+        this.#vtProgrammatic = null
+        this.#slideTurnId++
+        if (transition || this.#vtNamedHost) {
+            transition?.ready?.catch(() => {})
+            transition?.updateCallbackDone?.catch(() => {})
+            try { transition?.skipTransition() } catch { /* already done */ }
+            this.#vtCleanup()
+            this.#isAnimating = false
+        }
         this.#observer.unobserve(this)
         this.#destroyAllViews()
         this.#mediaQuery.removeEventListener('change', this.#mediaQueryListener)
